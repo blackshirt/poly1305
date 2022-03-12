@@ -35,7 +35,9 @@ v install https://github.com/blackshirt/poly1305
 module main 
 
 import crypto.rand 
+
 import blackshirt.chacha20
+import blackshirt.poly1305
 
 fn main() {
     // messages to auth
@@ -63,6 +65,12 @@ fn main() {
     // and then call finalize to produce 16 byte tag
     tag := poly.finalize()
 
+    res := poly1305.verify_mac(tag, msg, otk) ?
+	if res {
+		println('Verified')
+	} else {
+		println('Not verified')
+	}
 }
 
 
