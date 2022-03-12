@@ -1,0 +1,9 @@
+# Binaries for programs and plugins
+main
+poly1305
+*.exe
+*.exe~
+*.so
+*.dylib
+*.dll
+vls.log
