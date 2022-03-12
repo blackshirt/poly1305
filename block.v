@@ -20,10 +20,10 @@ fn update_padded(mut st Poly1305, data []byte) {
 
 	// check if last item of the chunks is unaligned with block size,
 	// if unaligned, pad associated data with `0` byte
-	if chunks.last().len % block_size != 0 {	
+	if chunks.last().len % block_size != 0 {
 		mut padded_block := []byte{len: block_size}
-        subtle.constant_time_copy(1, mut padded_block[..chunks.last().len], chunks.last())
-		chunks[chunks.len-1] = padded_block
+		subtle.constant_time_copy(1, mut padded_block[..chunks.last().len], chunks.last())
+		chunks[chunks.len - 1] = padded_block
 	}
 
 	for chunk in chunks {
@@ -36,7 +36,7 @@ fn (mut st Poly1305) compute_unpadded(data []byte) []byte {
 	// for chunk in data.chunks(block_size) {
 	for chunk in arrays.chunk<byte>(data, poly1305.block_size) {
 		if chunk.len == poly1305.block_size {
-			//block := chunk.clone()
+			// block := chunk.clone()
 			st.buffer = chunk
 			st.process_block(false)
 		} else {
@@ -50,7 +50,6 @@ fn (mut st Poly1305) compute_unpadded(data []byte) []byte {
 
 	return st.finalize()
 }
-
 
 fn compute_block(mut st Poly1305, b Block, partial bool) {
 	hibit := if partial { 0 } else { u32(1) << 24 }
@@ -131,5 +130,3 @@ fn compute_block(mut st Poly1305, b Block, partial bool) {
 	st.h[3] = h3
 	st.h[4] = h4
 }
-
-

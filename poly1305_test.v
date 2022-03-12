@@ -15,7 +15,6 @@ fn test_poly1305_core_vector_tests() ? {
 		// poly1305_init(mut poly, key)
 		poly.write(msg)
 		tag := poly.finalize()
-
 		assert tag == expected_tag
 		mut res := verify_mac(tag, msg, key) or { panic(err.msg) }
 		assert res == true
@@ -24,6 +23,11 @@ fn test_poly1305_core_vector_tests() ? {
 		assert mac == expected_tag
 		res = verify_mac(mac, msg, key) or { panic(err.msg) }
 		assert res == true
+
+		mut p := new_with_key(key) or { panic(err.msg) }
+		p.write(msg)
+
+		assert p.verify(expected_tag) == true
 	}
 }
 
@@ -115,7 +119,7 @@ fn test_rfc7539_vector() {
 	expected := hex.decode('a8061dc1305136c6c22b8baf0c0127a9') or { panic(err.msg) }
 
 	mut poly := new_with_key(key) or { panic(err.msg) }
-	//result := poly.compute_unpadded(msg)
+	// result := poly.compute_unpadded(msg)
 	poly.write(msg)
 	result := poly.finalize()
 	assert result == expected
@@ -133,7 +137,7 @@ fn test_donna_self_test2() {
 		mut key := []byte{len: key_size}
 		b := byte(i)
 		s := b.repeat(key_size) // string
-		copy(key, s.bytes())
+		copy(mut key, s.bytes())
 
 		msg := b.repeat(256).bytes()
 		mut p := new_with_key(key) or { panic(err.msg) }
