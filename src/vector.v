@@ -1,45 +1,4 @@
-module poly1305
-
-import encoding.hex
-
-// its comes from golang poly1305 bvector test, except minus with changed internal state test
-fn test_smoked_data_vectors() ? {
-	for i, c in poly1305.test_data {
-		mut key := hex.decode(c.key) or { panic(err.msg) }
-		mut msg := hex.decode(c.msg) or { panic(err.msg) }
-		expected_tag := hex.decode(c.tag) or { panic(err.msg) }
-
-		mut poly := new_with_key(key) or { panic(err.msg) }
-		// mut tag := []byte{len: tag_size}
-		poly.write(msg)
-		mut tag := poly.finalize()
-
-		assert tag == expected_tag
-
-		mut res := verify_mac(tag, msg, key) or { panic(err.msg) }
-		assert res == true
-
-		// If the key is zero, the tag will always be zero, independent of the input.
-		if msg.len > 0 && key.len != 32 {
-			msg[0] ^= 0xff
-			res = verify_mac(tag, msg, key) or { panic(err.msg) }
-			assert res == false
-			msg[0] ^= 0xff
-		}
-
-		// If the input is empty, the tag only depends on the second half of the key.
-		if msg.len > 0 {
-			key[0] ^= 0xff
-			res = verify_mac(tag, msg, key) or { panic(err.msg) }
-			assert res == false
-			key[0] ^= 0xff
-		}
-		tag[0] ^= 0xff
-		res = verify_mac(tag, msg, key) or { panic(err.msg) }
-		assert res == false
-		tag[0] ^= 0xff
-	}
-}
+module poly
 
 struct TestCase {
 	msg   string
@@ -49,7 +8,7 @@ struct TestCase {
 }
 
 const (
-	test_data = [
+	testdata = [
 		TestCase{
 			key: '3b3a29e93b213a5c5c3b3b053a3a8c0d00000000000000000000000000000000'
 			tag: '6dc18b8c344cd79927118bbe84b7f314'

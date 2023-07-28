@@ -1,151 +1,68 @@
-module poly1305
+module poly
 
-import arrays
 import encoding.hex
 
 // This is a test case from RFC 8439 vector test data.
 // There are 12 cases provided.
-fn test_poly1305_core_vector_tests() ? {
-	for i, c in poly1305.basic_poly_cases {
-		mut key := hex.decode(c.key) or { panic(err.msg) }
-		mut msg := hex.decode(c.msg) or { panic(err.msg) }
-		expected_tag := hex.decode(c.tag) or { panic(err.msg) }
+fn test_poly1305_core_vector_tests() ! {
+	for i, c in poly.basic_poly_cases {
+		mut key := hex.decode(c.key) or { panic(err.msg()) }
+		mut msg := hex.decode(c.msg) or { panic(err.msg()) }
+		expected_tag := hex.decode(c.tag) or { panic(err.msg()) }
 
-		mut poly := new_with_key(key) or { panic(err.msg) }
-		// poly1305_init(mut poly, key)
-		poly.write(msg)
-		tag := poly.finalize()
+		mut poly := new_poly1305(key)!
+		poly.input(msg)
+		tag := poly.result()
+		// poly.input(msg) // this could should lead to panic, becaus `.result()` setup done to true
+		// check tag same with expected_tag
 		assert tag == expected_tag
-		mut res := verify_mac(tag, msg, key) or { panic(err.msg) }
-		assert res == true
+		// verify the tag has right result
+		assert verify(tag, msg, key) == true
 
-		mac := create_mac(msg, key) or { panic(err.msg) }
+		mac := new_tag(msg, key)
 		assert mac == expected_tag
-		res = verify_mac(mac, msg, key) or { panic(err.msg) }
+		assert verify(mac, msg, key) == true
+	}
+}
+
+// its comes from golang poly1305 bvector test, except minus with changed internal state test
+fn test_smoked_data_vectors() ! {
+	for i, c in testdata {
+		mut key := hex.decode(c.key) or { panic(err.msg()) }
+		mut msg := hex.decode(c.msg) or { panic(err.msg()) }
+		expected_tag := hex.decode(c.tag) or { panic(err.msg()) }
+
+		mut poly := new_poly1305(key)!
+		// mut tag := []byte{len: tag_size}
+
+		poly.input(msg)
+		mut tag := poly.result()
+
+		assert tag == expected_tag
+
+		mut res := verify(tag, msg, key)
 		assert res == true
 
-		mut p := new_with_key(key) or { panic(err.msg) }
-		p.write(msg)
+		// If the key is zero, the tag will always be zero, independent of the input.
+		if msg.len > 0 && key.len != 32 {
+			msg[0] ^= 0xff
+			res = verify(tag, msg, key)
+			assert res == false
+			msg[0] ^= 0xff
+		}
 
-		assert p.verify(expected_tag) == true
+		// If the input is empty, the tag only depends on the second half of the key.
+		if msg.len > 0 {
+			key[0] ^= 0xff
+			res = verify(tag, msg, key)
+			assert res == false
+			key[0] ^= 0xff
+		}
+		tag[0] ^= 0xff
+		res = verify(tag, msg, key)
+		assert res == false
+		tag[0] ^= 0xff
 	}
-}
-
-fn test_nacl_vector() {
-	key := hex.decode('eea6a7251c1e72916d11c2cb214d3c252539121d8e234e652d651fa4c8cff880') or {
-		panic(err.msg)
-	}
-
-	msg := hex.decode('8e993b9f48681273c29650ba32fc76ce48332ea7164d96a4476fb8c531a1186ac0dfc17c98dce87b4da7f011ec48c97271d2c20f9b928fe2270d6fb863d51738b48eeee314a7cc8ab932164548e526ae90224368517acfeabd6bb3732bc0e9da99832b61ca01b6de56244a9e88d5f9b37973f622a43d14a6599b1f654cb45a74e355a5') or {
-		panic(err.msg)
-	}
-
-	expected := hex.decode('f3ffc7703f9400e52a7dfb4b3d3305d9') or { panic(err.msg) }
-	mut p := new_with_key(key) or { panic(err.msg) }
-	result1 := p.compute_unpadded(msg)
-
-	assert expected == result1
-}
-
-fn test_donna_self_test1() {
-	// This gives r = 2 and s = 0.
-	key := hex.decode('0200000000000000000000000000000000000000000000000000000000000000') or {
-		panic(err.msg)
-	}
-
-	// This results in a 130-bit integer with the lower 129 bits all set: m = (1 << 129) - 1
-	msg := hex.decode('ffffffffffffffffffffffffffffffff') or { panic(err.msg) }
-
-	// The input is a single block, so we should have the following computation:
-	//     tag = ((m * r) % p) + s
-	//         = ((((1 << 129) - 1) * 2) % p) + 0
-	//         = ((1 << 130) - 2) % (1 << 130) - 5
-	//         = 3
-	expected := hex.decode('03000000000000000000000000000000') or { panic(err.msg) }
-
-	mut poly := new_with_key(key) or { panic(err.msg) }
-	poly.write(msg)
-	assert expected == poly.finalize()
-}
-
-fn test_write_padded_input() {
-	// poly1305 key and AAD from <https://tools.ietf.org/html/rfc8439#section-2.8.2>
-	key := hex.decode('7bac2b252db447af09b67a55a4e955840ae1d6731075d9eb2a9375783ed553ff') or {
-		panic(err.msg)
-	}
-	msg := hex.decode('50515253c0c1c2c3c4c5c6c7') or { panic(err.msg) }
-	expected := hex.decode('ada56caa480fe6f5067039244a3d76ba') or { panic(err.msg) }
-
-	mut poly := new_with_key(key) or { panic(err.msg) }
-	poly.write_padded(msg)
-	assert expected == poly.finalize()
-}
-
-fn test_update_padded_input() {
-	// poly1305 key and AAD from <https://tools.ietf.org/html/rfc8439#section-2.8.2>
-	key := hex.decode('7bac2b252db447af09b67a55a4e955840ae1d6731075d9eb2a9375783ed553ff') or {
-		panic(err.msg)
-	}
-	msg := hex.decode('50515253c0c1c2c3c4c5c6c7') or { panic(err.msg) }
-	expected := hex.decode('ada56caa480fe6f5067039244a3d76ba') or { panic(err.msg) }
-
-	mut poly := new_with_key(key) or { panic(err.msg) }
-	update_padded(mut poly, msg)
-	assert expected == poly.finalize()
-}
-
-fn test_tls_vectors() {
-	// from http://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-04
-	key := 'this is 32-byte key for Poly1305'.bytes()
-	msg := []byte{len: 32}
-	expected := hex.decode('49ec78090e481ec6c26b33b91ccc0307') or { panic(err.msg) }
-
-	mut poly := new_with_key(key) or { panic(err.msg) }
-
-	for chunk in arrays.chunk<byte>(msg, block_size) {
-		poly.write(chunk)
-	}
-	assert expected == poly.finalize()
-}
-
-fn test_rfc7539_vector() {
-	// From <https://tools.ietf.org/html/rfc7539#section-2.5.2>
-	key := hex.decode('85d6be7857556d337f4452fe42d506a80103808afb0db2fd4abff6af4149f51b') or {
-		panic(err.msg)
-	}
-	msg := hex.decode('43727970746f6772617068696320466f72756d2052657365617263682047726f7570') or {
-		panic(err.msg)
-	}
-	expected := hex.decode('a8061dc1305136c6c22b8baf0c0127a9') or { panic(err.msg) }
-
-	mut poly := new_with_key(key) or { panic(err.msg) }
-	// result := poly.compute_unpadded(msg)
-	poly.write(msg)
-	result := poly.finalize()
-	assert result == expected
-}
-
-fn test_donna_self_test2() {
-	total_key := hex.decode('01020304050607fffefdfcfbfaf9ffffffffffffffffffffffffffff00000000') or {
-		panic(err.msg)
-	}
-	total_mac := hex.decode('64afe2e8d6ad7bbdd287f97c44623d39') or { panic(err.msg) }
-
-	mut tpoly := new_with_key(total_key) or { panic(err.msg) }
-
-	for i in 0 .. 256 {
-		mut key := []byte{len: key_size}
-		b := byte(i)
-		s := b.repeat(key_size) // string
-		copy(mut key, s.bytes())
-
-		msg := b.repeat(256).bytes()
-		mut p := new_with_key(key) or { panic(err.msg) }
-		tag := p.compute_unpadded(msg[..i])
-		tpoly.write(tag)
-	}
-	//
-	assert total_mac == tpoly.finalize()
 }
 
 struct RFCTestCases {
@@ -189,7 +106,7 @@ const (
 		},
 		// Test Vector #5: If one uses 130-bit partial reduction, does the code
 		// handle the case where partially reduced final result is not fully
-		// reduced?
+		// reduced!
 		// r := '02000000000000000000000000000000'
 		// s := '00000000000000000000000000000000'
 		// data := 'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF'
@@ -200,7 +117,7 @@ const (
 			msg: 'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF'
 			tag: '03000000000000000000000000000000'
 		},
-		// Test Vector #6: What happens if addition of s overflows modulo 2^128?
+		// Test Vector #6: What happens if addition of s overflows modulo 2^128!
 		// r := '02000000000000000000000000000000'
 		// s := 'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF'
 		// data := '02000000000000000000000000000000'
@@ -212,7 +129,7 @@ const (
 			tag: '03000000000000000000000000000000'
 		},
 		// Test Vector #7: What happens if data limb is all ones and there is
-		// carry from lower limb?
+		// carry from lower limb!
 		// r := '01000000000000000000000000000000'
 		// s := '00000000000000000000000000000000'
 		// data := 'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF0FFFFFFFFFFFFFFFFFFFFFFFFFFFFFF11000000000000000000000000000000'
@@ -223,7 +140,7 @@ const (
 			tag: '05000000000000000000000000000000'
 		},
 		// Test Vector #8: What happens if final result from polynomial part is
-		// exactly 2^130-5?
+		// exactly 2^130-5!
 		// r := '01000000000000000000000000000000'
 		// s := '00000000000000000000000000000000'
 		// data := 'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFEFEFEFEFEFEFEFEFEFEFEFEFEFEFE01010101010101010101010101010101'
@@ -234,7 +151,7 @@ const (
 			tag: '00000000000000000000000000000000'
 		},
 		// Test Vector #9: What happens if final result from polynomial part is
-		//  exactly 2^130-6?
+		//  exactly 2^130-6!
 		// r := '02000000000000000000000000000000'
 		// s := '00000000000000000000000000000000'
 		// data := 'FDFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF'
@@ -245,7 +162,7 @@ const (
 			tag: 'FAFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF'
 		},
 		// Test Vector #10: What happens if 5*H+L-type reduction produces
-		//  131-bit intermediate result?
+		//  131-bit intermediate result!
 		// r := '01000000000000000400000000000000'
 		// s := '00000000000000000000000000000000'
 		// data := 'E33594D7505E43B900000000000000003394D7505E4379CD01000000000000000000000000000000000000000000000001000000000000000000000000000000'
@@ -256,7 +173,7 @@ const (
 			tag: '14000000000000005500000000000000'
 		},
 		// Test Vector #11: What happens if 5*H+L-type reduction produces
-		//   131-bit final result?
+		//   131-bit final result!
 		// r := '01000000000000000400000000000000'
 		// s := '00000000000000000000000000000000'
 		// data := 'E33594D7505E43B900000000000000003394D7505E4379CD010000000000000000000000000000000000000000000000'

@@ -1,9 +1,27 @@
 # Binaries for programs and plugins
 main
-poly1305
+tls13
 *.exe
 *.exe~
 *.so
 *.dylib
 *.dll
-vls.log
+
+# Ignore binary output folders
+bin/
+
+# Ignore common editor/system specific metadata
+.DS_Store
+.idea/
+.vscode/
+*.iml
+
+# ENV
+.env
+
+# vweb and database
+*.db
+*.js
+
+# docs
+_docs/

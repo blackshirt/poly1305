@@ -1,6 +1,6 @@
 // This is internally same as write or write_padded
 // but for conveniences, its available to mimic from rust version
-module poly1305
+module poly
 
 import arrays
 import encoding.binary
@@ -16,7 +16,7 @@ type Block = []byte
 //  Message Authentication Codes (MACs) based on universal hashing.
 fn update_padded(mut st Poly1305, data []byte) {
 	// mut chunks = data.chunks_exact(Self::BlockSize::to_usize());
-	mut chunks := arrays.chunk<byte>(data, block_size)
+	mut chunks := arrays.chunk[byte](data, block_size)
 
 	// check if last item of the chunks is unaligned with block size,
 	// if unaligned, pad associated data with `0` byte
@@ -34,7 +34,7 @@ fn update_padded(mut st Poly1305, data []byte) {
 // compute_unpadded computes unpadded tag for the given input data.
 fn (mut st Poly1305) compute_unpadded(data []byte) []byte {
 	// for chunk in data.chunks(block_size) {
-	for chunk in arrays.chunk<byte>(data, poly1305.block_size) {
+	for chunk in arrays.chunk[byte](data, poly1305.block_size) {
 		if chunk.len == poly1305.block_size {
 			// block := chunk.clone()
 			st.buffer = chunk
