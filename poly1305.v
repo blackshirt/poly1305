@@ -3,7 +3,7 @@
 // that can be found in the LICENSE file.
 //
 // Poly1305 one time message authentication code (MAC)
-module poly
+module poly1305
 
 import math
 import encoding.binary
@@ -55,11 +55,11 @@ pub fn verify(mac []u8, msg []u8, key []u8) bool {
 // Poly1305 MAC cannot be used like common hash, because using a poly1305 key twice breaks its security.
 // Therefore feeding data to input to a running MAC after calling result causes it to panic.
 pub fn new_poly1305(key []u8) !Poly1305 {
-	if key.len != poly.key_size {
+	if key.len != poly1305.key_size {
 		return error('wrong key size provided')
 	}
 	mut p := Poly1305{
-		buffer: []u8{len: poly.block_size}
+		buffer: []u8{len: poly1305.block_size}
 	}
 	// load the keys to two parts `r` and `s` and doing clamping
 	// with r &= 0xffffffc0ffffffc0ffffffc0fffffff
@@ -96,7 +96,7 @@ pub fn (mut p Poly1305) input(data []u8) {
 		m = m[want..]
 		p.leftover += want
 
-		if p.leftover < poly.block_size {
+		if p.leftover < poly1305.block_size {
 			return
 		}
 
@@ -104,12 +104,12 @@ pub fn (mut p Poly1305) input(data []u8) {
 		p.leftover = 0
 	}
 
-	for m.len >= poly.block_size {
+	for m.len >= poly1305.block_size {
 		// TODO(tarcieri): avoid a copy here but do for now
 		// because it simplifies constant-time assessment.
-		subtle.constant_time_copy(1, mut p.buffer, m[..poly.block_size])
+		subtle.constant_time_copy(1, mut p.buffer, m[..poly1305.block_size])
 		p.process_the_block(false)
-		m = m[poly.block_size..]
+		m = m[poly1305.block_size..]
 	}
 
 	// p.buffer[..m.len].copy_from_slice(m);
@@ -127,11 +127,11 @@ pub fn (mut p Poly1305) input_padded(data []u8) {
 	p.input(data)
 
 	// Pad associated data with `\0` if it's unaligned with the block size
-	unaligned_len := data.len % poly.block_size
+	unaligned_len := data.len % poly1305.block_size
 
 	if unaligned_len != 0 {
-		pad := []u8{len: poly.block_size}
-		pad_len := poly.block_size - unaligned_len
+		pad := []u8{len: poly1305.block_size}
+		pad_len := poly1305.block_size - unaligned_len
 		p.input(pad[..pad_len])
 	}
 }
@@ -148,7 +148,7 @@ pub fn (mut p Poly1305) result() []u8 {
 	if p.leftover > 0 {
 		p.buffer[p.leftover] = u8(0x01)
 
-		for i in (p.leftover + 1) .. poly.block_size {
+		for i in (p.leftover + 1) .. poly1305.block_size {
 			p.buffer[i] = u8(0x00)
 		}
 
@@ -239,7 +239,7 @@ pub fn (mut p Poly1305) result() []u8 {
 	f = u64(h3) + u64(p.s[3]) + (f >> 32)
 	h3 = u32(f) // f as u32
 
-	mut tag := []u8{len: poly.tag_size}
+	mut tag := []u8{len: poly1305.tag_size}
 	binary.little_endian_put_u32(mut tag[0..4], h0)
 	binary.little_endian_put_u32(mut tag[4..8], h1)
 	binary.little_endian_put_u32(mut tag[8..12], h2)
