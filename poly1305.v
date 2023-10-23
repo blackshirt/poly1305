@@ -87,13 +87,13 @@ pub fn (mut p Poly1305) input(data []u8) {
 
 	if p.leftover > 0 {
 		want := math.min(16 - p.leftover, m.len)
-		mm := m[..want]
+		mm := unsafe { m[..want] }
 		// for (i, byte) in m.iter().cloned().enumerate().take(want) {
 		for i, v in mm {
 			p.buffer[p.leftover + i] = v
 		}
 
-		m = m[want..]
+			m = unsafe { m[want..] }
 		p.leftover += want
 
 		if p.leftover < poly1305.block_size {
@@ -109,7 +109,7 @@ pub fn (mut p Poly1305) input(data []u8) {
 		// because it simplifies constant-time assessment.
 		subtle.constant_time_copy(1, mut p.buffer, m[..poly1305.block_size])
 		p.process_the_block(false)
-		m = m[poly1305.block_size..]
+		m = unsafe { m[poly1305.block_size..] }
 	}
 
 	// p.buffer[..m.len].copy_from_slice(m);
