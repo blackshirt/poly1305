@@ -30,10 +30,10 @@ mut:
 	s unsigned.Uint128
 
 	// accumulator
-	h unsigned.Uint256 
+	acc unsigned.Uint256 
 
 	// buffer 
-	buffer [tag_size]u8 
+	buffer []u8 = []u8{len: tag_size}
 	offset int 
 }
 
@@ -56,4 +56,49 @@ fn new(key []u8) !&Poly1305 {
 		s: s 
 	}
 	return p 
+}
+
+// we follow the go version
+fn update_generic(mut ctx Poly1305, mut msg []u8) {
+	// localize the thing
+	mut h := ctx.acc 
+	r := ctx.r 
+	for msg.len > 0 {
+		// h += m 
+		if len.msg >= tag_size {
+			// load 16 bytes msg
+			mlo := binary.little_endian_u32(msg[0..8])
+			mhi := binary.little_endian_u32(msg[8..16])
+			m := unsigned.uint128_new(mlo, mhi)
+			
+			// The rfc requires us to set a bit just above the message size, ie, 
+			// add one bit beyond the number of octets.  For a 16-byte block,
+      		// this is equivalent to adding 2^128 to the number.
+			// so we can just add 1 to the high part of accumulator
+			h = h.add_128(uint128_new(0, 1))
+
+	  		// we adding 128 bits wide of msg to 256 bits wide of accumulator
+			h = h.add_128(m)
+			// updates msg slice 
+			msg = unsafe { msg[tag_size..] }
+		} else {
+			// If the msg block is not 17 bytes long (the last block), pad it with zeros
+			mut buf := []u8{len: tag_size}
+			subtle.constant_time_copy(1, mut buf[..msg.len], msg)
+
+			// Add this number to the accumulator, ie, h += m 
+			mo := binary.little_endian_u32(buf[0..8])
+			mi := binary.little_endian_u32(buf[8..16])
+			m := unsigned.uint128_new(mo, mi)
+			h = h.add_128(m)
+			// drains the msg 
+			msg = []u8{}
+		}
+		// multiplication of big number, h *= r, ie, Uint256 x Uint128
+		hnew := h.mul_128(r)
+		// todo: reduction module p 
+
+		// update context state 
+		ctx.acc = hnew 
+	}
 }
