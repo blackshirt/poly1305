@@ -18,14 +18,24 @@ pub const (
 	// tag_size is size of output of Poly1305 result, in bytes
 	tag_size   = 16
 )
-
+	
+// mask for clamping r part
 const rmask0 = 0x0FFFFFFC0FFFFFFF
 const rmask1 = 0x0FFFFFFC0FFFFFFC
 
+// p is Poly1305 constant prime, ie 2^130-5
+// as defined in rfc, p = 3fffffffffffffffffffffffffffffffb
+// we represent it in Uint256 base, 
+// maybe bits of waste here, but we can optimize it later
+const p = unsigned.Uint256{
+		lo: unsigned.uint128_new(0xFFFFFFFFFFFFFFFB, 0xFFFFFFFFFFFFFFFF)
+		hi: unsigned.uint128_new(0x0000000000000003, 0)
+	}
+
 struct Poly1305 {
 mut:
-	// 32 bytes of key is splitted into two's of 128 bit parts, r and s
-	// where r is clamped before stored to instance.
+	// 32 bytes of key input is partitioned into two's 128 bit parts, r and s
+	// where r is clamped before stored.
 	r unsigned.Uint128 
 	s unsigned.Uint128
 
@@ -95,10 +105,11 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 			msg = []u8{}
 		}
 		// multiplication of big number, h *= r, ie, Uint256 x Uint128
-		hnew := h.mul_128(r)
-		// todo: reduction module p 
+		h = h.mul_128(r)
+		// reduction modulo p 
+		h = h % p
 
 		// update context state 
-		ctx.acc = hnew 
+		ctx.acc = h
 	}
 }
