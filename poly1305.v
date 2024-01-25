@@ -48,17 +48,18 @@ mut:
 }
 
 fn new(key []u8) !&Poly1305 {
-	if key.len != key_size {
+	if key.len != poly1305.key_size {
 		return error("poly1305: bad key length")
 	}
 	// read r part from key and clamping it 
-	lo := binary.little_endian_u32(key[0..8]) & rmask0
-	hi := binary.little_endian_u32(key[8..16]) & rmask1 
-	r := unsigned.uint128_new(lo, hi) 
-
+	lo := binary.little_endian_u64(key[0..8])
+	hi := binary.little_endian_u64(key[8..16])
+	mut r := unsigned.uint128_new(lo, hi) 
+	clamp_r(mut r)
+		
 	// read s part from the rest bytes of key 
-	so := binary.little_endian_u32(key[16..24])
-	si := binary.little_endian_u32(key[24..32])
+	so := binary.little_endian_u64(key[16..24])
+	si := binary.little_endian_u64(key[24..32])
 	s := unsigned.uint128_new(so, si)
 
 	p := &Poly1305{
@@ -67,7 +68,19 @@ fn new(key []u8) !&Poly1305 {
 	}
 	return p 
 }
-
+		
+// clamp_r does clearing some bits of r before being used.
+// the spec says, the bits thats required to be clamped:
+// odd index bytes, ie,  r[3], r[7], r[11], and r[15] are required to have their top four
+// bits clear (be smaller than 16)
+// and,
+// even index bytes, ie,   r[4], r[8], and r[12] are required to have their bottom two bits
+// clear (be divisible by 4)
+fn clamp_r(mut r unsigned.Uint128) {
+	r.lo &= rmask0
+	r.hi &= rmask1
+}
+		
 // we follow the go version
 fn update_generic(mut ctx Poly1305, mut msg []u8) {
 	// localize the thing
