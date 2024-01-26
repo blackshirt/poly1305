@@ -10,16 +10,13 @@ import math.unsigned
 import encoding.binary
 import crypto.internal.subtle
 
-pub const (
-	// block_size is internal size of Poly1305 block that operates on
-	block_size = 16
-	// key_size is 256 bit one-time key size for input to Poly1305 mac, in bytes
-	key_size   = 32
-	// tag_size is size of output of Poly1305 result, in bytes
-	tag_size   = 16
-)
-	
-// mask for clamping r part
+// block_size is internal size of Poly1305 block that operates on
+const block_size = 16
+// key_size is 256 bit one-time key size for input to Poly1305 mac, in bytes
+const key_size   = 32
+// tag_size is size of output of Poly1305 result, in bytes
+const tag_size   = 16
+// mask value for clamping r part
 const rmask0 = 0x0FFFFFFC0FFFFFFF
 const rmask1 = 0x0FFFFFFC0FFFFFFC
 
