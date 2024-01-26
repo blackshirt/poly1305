@@ -105,16 +105,16 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 			// updates msg slice 
 			msg = unsafe { msg[tag_size..] }
 		} else {
-			// If the msg block is not 17 bytes long (the last block), pad it with zeros
+			// If the msg block is not 16 bytes long (the last block), pad it with zeros.
 			mut buf := []u8{len: tag_size}
 			subtle.constant_time_copy(1, mut buf[..msg.len], msg)
 
 			// Add this number to the accumulator, ie, h += m 
-			mo := binary.little_endian_u32(buf[0..8])
-			mi := binary.little_endian_u32(buf[8..16])
+			mo := binary.little_endian_u64(buf[0..8])
+			mi := binary.little_endian_u64(buf[8..16])
 			m := unsigned.uint128_new(mo, mi)
 			h = h.add_128(m)
-			// drains the msg 
+			// drains the msg, we have reached the last block
 			msg = []u8{}
 		}
 		// multiplication of big number, h *= r, ie, Uint256 x Uint128
