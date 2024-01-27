@@ -202,10 +202,19 @@ fn (mut h Acc) mul_r(r unsigned.Uint128) {
 	// 			h2	h1	h0
 	//					r
 	//	-----------------x
-	//		h2r	 h1r	h0r
+	//		rh2	  rh1	rh0
+	//  ------------------
+	//   rh2.hi  rh1.hi  rh0.hi
+	//           rh2.lo  rh1.lo   rh0.lo
+	//  --------------------------------
 	rh0 := r.mul_64(h0)
 	rh1 := r.mul_64(h1)
 	rh2	:= r.mul_64(h2)
+
+	t0 := rh0.lo
+	t1, c1 := bits.add_u64(rh0.hi, rh1.lo, 0)
+	t2, c2 := bits.add_u64(rh1.hi, rh2.lo, c0)
+	t3 := rh2.hi + c2
 }
 
 // select_64 returns x if v == 1 and y if v == 0, in constant time.
