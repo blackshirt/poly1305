@@ -5,10 +5,8 @@ import time
 import math.stats
 import blackshirt.poly1305
 
-const (
-	default_numiter = 100000
-	key             = rand.bytes(32) or { panic(err.msg) }
-)
+const default_numiter = 100000
+const key = rand.bytes(32) or { panic(err.msg) }
 
 fn poly32_create_mac_for_1k_msg_bench() ? {
 	msg := rand.bytes(1024)?
