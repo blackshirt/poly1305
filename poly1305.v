@@ -20,14 +20,9 @@ const tag_size = 16
 const rmask0 = u64(0x0FFFFFFC0FFFFFFF)
 const rmask1 = u64(0x0FFFFFFC0FFFFFFC)
 
-// p is Poly1305 constant prime, ie 2^130-5
+// p is 130 bit of Poly1305 constant prime, ie 2^130-5
 // as defined in rfc, p = 3fffffffffffffffffffffffffffffffb
-// we represent it in Uint256 base,
-// maybe bits of waste here, but we can optimize it later
-const p = unsigned.Uint256{
-	lo: unsigned.uint128_new(0xFFFFFFFFFFFFFFFB, 0xFFFFFFFFFFFFFFFF)
-	hi: unsigned.uint128_new(0x0000000000000003, 0)
-}
+const p = [u64(0xFFFFFFFFFFFFFFFB), u64(0xFFFFFFFFFFFFFFFF), u64(0x0000000000000003)]
 
 struct Poly1305 {
 mut:
@@ -35,11 +30,13 @@ mut:
 	// where r is clamped before stored.
 	r unsigned.Uint128
 	s unsigned.Uint128
-	// accumulator
-	acc unsigned.Uint256
+	// Poly1305 arithmatic accumulator
+	acc [3]u64
 	// buffer
-	buffer []u8 = []u8{len: poly1305.tag_size}
+	buffer []u8 = []u8{len: poly1305.block_size}
 	offset int
+	// flag thats tells should not be used
+	done bool
 }
 
 fn new(key []u8) !&Poly1305 {
@@ -111,24 +108,30 @@ fn clamp_r(mut r unsigned.Uint128) {
 // we follow the go version
 fn update_generic(mut ctx Poly1305, mut msg []u8) {
 	// localize the thing
-	mut h := ctx.acc
+	mut h0 := ctx.acc[0]
+	mut h1 := ctx.acc[1]
+	mut h2 := ctx.acc[2]
 	r := ctx.r
 	for msg.len > 0 {
+		// carry
+		mut c := u64(0)
 		// h += m
-		if msg.len >= poly1305.tag_size {
+		if msg.len >= poly1305.block_size {
 			// load 16 bytes msg
 			mlo := binary.little_endian_u32(msg[0..8])
 			mhi := binary.little_endian_u32(msg[8..16])
 			m := unsigned.uint128_new(mlo, mhi)
 
+			// We add 128 bit msg with 64 bit from related accumulator
+			// just use Uint128.overflowing_add_64(v u64) (Uint128, u64)
+			h0, c = bits.add_64(h0, m.lo)
+			h1, c = bits.add_64(h1, m.hi)
 			// The rfc requires us to set a bit just above the message size, ie,
 			// add one bit beyond the number of octets.  For a 16-byte block,
 			// this is equivalent to adding 2^128 to the number.
 			// so we can just add 1 to the high part of accumulator
-			h = h.add_128(unsigned.uint128_new(0, 1))
+			h2 += c + 1
 
-			// we adding 128 bits wide of msg to 256 bits wide of accumulator
-			h = h.add_128(m)
 			// updates msg slice
 			msg = unsafe { msg[poly1305.block_size..] }
 		} else {
@@ -141,19 +144,68 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 			mo := binary.little_endian_u64(buf[0..8])
 			mi := binary.little_endian_u64(buf[8..16])
 			m := unsigned.uint128_new(mo, mi)
-			h = h.add_128(m)
+
+			h0, c = bits.add_64(h0, m.lo)
+			h1, c = bits.add_64(h1, m.hi)
+			h2 += c
 			// drains the msg, we have reached the last block
 			msg = []u8{}
 		}
-		// multiplication of big number, h *= r, ie, Uint256 x Uint128
-		// TODO: better way to do h = *r
-		h = h.mul_128(r)
+		// multiplication of h and r, h *= r,
+		// TODO: better way to do h *= r
+		// struct Acc {
+		//		low 	unsigned.Uint128
+		//		hibit 	u8 	
+		// }
+		// 			h2		h1		h0		
+		// 							r		// 128 bit
+		// 	----------------------------x
+		//			rh2	  	rh1		rh0 	// individual Uint128 product
+		//  ----------------------------
+		// 		rh2.hi	rh1.hi	rh0.hi
+		//				rh2.lo	rh1.lo	rh0.lo
+		//	----------------------------------
+		rh0 := r.mul_64(h0) 
+		rh1 := r.mul_64(h1)
+		rh2 := r.mul_64(h2)
+
+		if rh2.hi != 0 {
+			panic("poly1305: unexpected overflow")
+		}
+
+		// propagates carry
+		t0 := rh0.lo
+		t1, c0 := bits.add_u64(rh1.lo, rh0.hi, 0)
+		t2, _ := bits.add_u64(rh2.lo, rh1.hi, c0)
+		
+
 		// is this the right way to do reduction modulo p ?
 		h = h % poly1305.p
 
 		// update context state
 		ctx.acc = h
 	}
+}
+
+// Accumulator, basically its a similar to go, [3]u64
+struct Acc {
+mut:
+	h [3]u64
+}
+
+fn (mut h Acc) mul_r(r unsigned.Uint128) {
+	h0 := h.low.lo 
+	h1 := h.low.hi
+	h2 := h.high
+	r0 := r.lo 
+	r1 := r.hi 
+	// 			h2	h1	h0
+	//					r
+	//	-----------------x
+	//		h2r	 h1r	h0r
+	rh0 := r.mul_64(h0)
+	rh1 := r.mul_64(h1)
+	rh2	:= r.mul_64(h2)
 }
 
 // select_64 returns x if v == 1 and y if v == 0, in constant time.
