@@ -65,7 +65,37 @@ fn new(key []u8) !&Poly1305 {
 	}
 	return p 
 }
-		
+
+fn (mut ctx Poly1305) sum(mut out[tag_size]u8) {
+	if ctx.offset > 0 {
+		update_generic(mut ctx, ctx.buffer[..ctx.offset])
+	}
+	finalize(mut out, mut ctx.h, ctx.s)
+}
+
+fn (mut ctx Poly1305) write(buf []u8) !int {}
+
+fn (mut ctx Poly1305) update(mut p []u8) {
+	if ctx.offset > 0 {
+		n := copy(mut ctx.buffer[ctx.offset..], p)
+		if ctx.offset + n < tag_size {
+			ctx.offset += n
+			return 
+		}
+		p = unsafe { p[n..] }
+		ctx.offset = 0
+		update_generic(mut ctx, mut ctx.buffer)
+	}
+	nn := p.len - p.len % tag_size
+	if o > 0 {
+		update_generic(mut ctx, mut p[..nn])
+		p = unsafe { p[nn..] }
+	}
+	if p.len > 0 {
+		h.offset += copy(h.buffer[h.offset..], p)
+	}
+}
+
 // clamp_r does clearing some bits of r before being used.
 // the spec says, the bits thats required to be clamped:
 // odd index bytes, ie,  r[3], r[7], r[11], and r[15] are required to have their top four
@@ -100,11 +130,12 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 	  		// we adding 128 bits wide of msg to 256 bits wide of accumulator
 			h = h.add_128(m)
 			// updates msg slice 
-			msg = unsafe { msg[tag_size..] }
+			msg = unsafe { msg[block_size..] }
 		} else {
 			// If the msg block is not 16 bytes long (the last block), pad it with zeros.
-			mut buf := []u8{len: tag_size}
+			mut buf := []u8{len: block_size}
 			subtle.constant_time_copy(1, mut buf[..msg.len], msg)
+			buf[msg.len] = u8(0x01)
 
 			// Add this number to the accumulator, ie, h += m 
 			mo := binary.little_endian_u64(buf[0..8])
@@ -115,11 +146,38 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 			msg = []u8{}
 		}
 		// multiplication of big number, h *= r, ie, Uint256 x Uint128
+		// TODO: better way to do h = *r 
 		h = h.mul_128(r)
-		// reduction modulo p 
+		// is this the right way to do reduction modulo p ?
 		h = h % p
 
 		// update context state 
 		ctx.acc = h
 	}
+}
+
+// select_u256 returns x if v == 1 and y if v == 0, in constant time.
+fn select_u64(v, x u64, y u64) u64 { 
+	return ^(v-1)&x | (v-1)&y 
+}
+
+// we adapt the go version  
+fn finalize(mut out [tag_size]u8, mut h Uint256, s Uint128) {
+	// compute t = h - (2¹³⁰ - 5), and select h as the result if the
+	// subtraction underflows, and t otherwise.
+	// intrinsically, we rely on builtin `math.unsigned.Uint256` machinery
+	// to do arithmetic.
+	t, b := unsigned.sub_256(h, p, u64(0))
+
+	// h = h if h < p else h - p
+	h.lo.lo = select_64(b, h.lo.lo, t.lo.lo)
+	h.lo.hi = select_64(b, h.lo.hi, t.lo.hi)
+
+	// Finally, we compute tag = h + s  mod  2¹²⁸
+	// s is 128 bit of ctx.s, ie, Uint128
+	h = h.add_128(s)
+
+	// take only low 128 bit of h 
+	binary.little_endian_put_u64(mut out[0..8], h.lo.lo)
+	binary.little_endian_put_u64(mut out[8..16], h.lo.hi)
 }
