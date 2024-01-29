@@ -232,11 +232,20 @@ fn (mut h Acc) mul_r(r unsigned.Uint128) {
 	// individual 128 bit product
 	h0r0 := u128_new(h0, r0)
 	h1r0 := u128_new(h1, r0)
-	h2r0 := u128_new(h2, r0)
 	h0r1 := u128_new(h0, r1)
 	h1r1 := u128_new(h1, r1)
+	
+	// for h2, its has been checked above, even its value has to be at most 7,
+	// (for marking h has been overflowing 130 bit), the product of h2 and r0/r1
+	// would not going to overflow to 64 bits (exactly, maximum at 63 bits)
+	// Its likes in the go comment did, 
+	h2r0 := u128_new(h2, r0)
 	h2r1 := u128_new(h2, r1)
-
+		
+    // In properly clamped r, h*r would not overflow 128 bit,
+	// because r0 and r1 of r has been masked with rmask0 and rmask1 above.
+	// Its includes addition of uint128 result does not overflow 128 bit too.
+	// Its should c0 = c1 = c2 = 0
 	m0 := h0r0 
 	m1, c0 := unsigned.add_128(h1r0, h0r1, 0) // (Uint128, u64)
 	m2, c1 := unsigned.add_128(h2r0, h1r1, c0)
@@ -245,7 +254,7 @@ fn (mut h Acc) mul_r(r unsigned.Uint128) {
 	if c2 != 0 {
 		panic("poly1305: overflow")
 	}
-
+    // carry propagation
 	t0 := m0.lo
 	t1, c3 := bits.add_64(m0.hi, m1.lo, 0)
 	t2, c4 := bits.add_64(m1.hi, m2.lo, c3)
