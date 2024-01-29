@@ -205,13 +205,13 @@ fn (mut h Acc) mul_r(r unsigned.Uint128) {
 	h2 := h.high
 	r0 := r.lo 
 	r1 := r.hi 
-	// 			h2	h1	h0
-	//				r1  r0
-	//	-----------------x
-	//		           h2r0	  h1r0	h0r0
+	// 				h2		h1		h0
+	//						r1 		r0
+	//	-------------------------------x
+	//		           h2r0	  h1r0	h0r0 // 128 bit product
 	//         h2r1    h1r1   h0r1
 	//  --------------------------------
-	//         m3      m2     m1    m0      // 128 bit product
+	//         m3      m2     m1    m0      
 	//   -------------------------------
 	//   m3.hi     m2.hi     m1.hi  m0.hi
 	//             m3.lo     m2.lo  m1.lo   m0.lo
@@ -224,6 +224,20 @@ fn (mut h Acc) mul_r(r unsigned.Uint128) {
 	h0r1 := u128_new(h0, r1)
 	h1r1 := u128_new(h1, r1)
 	h2r1 := u128_new(h2, r1)
+
+	m0 := h020 
+	m1, c0 := unsigned.add_128(h1r0, h1r1, 0) // (Uint128, u64)
+	m2, c1 := unsigned.add_128(h2r0, h1r1, c0)
+	m3, c2 := h2r1.overflowing_add_64(c1)
+	// should we check for c2 carry ?
+	if c2 != 0 {
+		panic("poly1305: overflow")
+	}
+
+	t0 := m0.lo
+	t1, c3 := bits.add_64(m0.hi, m1.lo, 0)
+	t2, c4 := bits.add_64(m1.hi, m2.lo, c3)
+	
 }
 
 // select_64 returns x if v == 1 and y if v == 0, in constant time.
