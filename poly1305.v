@@ -193,6 +193,12 @@ mut:
 	h [3]u64
 }
 
+// u128_new creates new Uint128 from 64x64 bit product of x*y
+fn u128_new(x u64, y u64) unsigned.Uint128 {
+	hi, lo := bits.mul_64(x, y)
+	return unsigned.uint128_new(lo, hi)
+}
+			
 fn (mut h Acc) mul_r(r unsigned.Uint128) {
 	h0 := h.low.lo 
 	h1 := h.low.hi
@@ -200,21 +206,24 @@ fn (mut h Acc) mul_r(r unsigned.Uint128) {
 	r0 := r.lo 
 	r1 := r.hi 
 	// 			h2	h1	h0
-	//					r
+	//				r1  r0
 	//	-----------------x
-	//		rh2	  rh1	rh0
-	//  ------------------
-	//   rh2.hi  rh1.hi  rh0.hi
-	//           rh2.lo  rh1.lo   rh0.lo
+	//		           h2r0	  h1r0	h0r0
+	//         h2r1    h1r1   h0r1
 	//  --------------------------------
-	rh0 := r.mul_64(h0)
-	rh1 := r.mul_64(h1)
-	rh2	:= r.mul_64(h2)
-
-	t0 := rh0.lo
-	t1, c1 := bits.add_u64(rh0.hi, rh1.lo, 0)
-	t2, c2 := bits.add_u64(rh1.hi, rh2.lo, c0)
-	t3 := rh2.hi + c2
+	//         m3      m2     m1    m0      // 128 bit product
+	//   -------------------------------
+	//   m3.hi     m2.hi     m1.hi  m0.hi
+	//             m3.lo     m2.lo  m1.lo   m0.lo
+	//  -----------------------------------------
+	//      t4     t3         t2    t1      t0
+	//  ------------------------------------------
+	h0r0 := u128_new(h0, r0)
+	h1r0 := u128_new(h1, r0)
+	h2r0 := u128_new(h2, r0)
+	h0r1 := u128_new(h0, r1)
+	h1r1 := u128_new(h1, r1)
+	h2r1 := u128_new(h2, r1)
 }
 
 // select_64 returns x if v == 1 and y if v == 0, in constant time.
