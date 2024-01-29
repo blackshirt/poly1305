@@ -16,9 +16,14 @@ const block_size = 16
 const key_size = 32
 // tag_size is size of output of Poly1305 result, in bytes
 const tag_size = 16
+
 // mask value for clamping r part
 const rmask0 = u64(0x0FFFFFFC0FFFFFFF)
 const rmask1 = u64(0x0FFFFFFC0FFFFFFC)
+// mask value for low 2 bits of u64 value 
+mask_low2bits = u64(0x0000000000000003)
+// mask value for high 62 bit of u64 value 
+mask_high62bits = u64(0xFFFFFFFFFFFFFFFC)
 
 // p is 130 bit of Poly1305 constant prime, ie 2^130-5
 // as defined in rfc, p = 3fffffffffffffffffffffffffffffffb
@@ -200,24 +205,30 @@ fn u128_new(x u64, y u64) unsigned.Uint128 {
 }
 			
 fn (mut h Acc) mul_r(r unsigned.Uint128) {
-	h0 := h.low.lo 
-	h1 := h.low.hi
-	h2 := h.high
+	h0 := h[0]
+	h1 := h[1]
+	h2 := h[2]
+	// we need h is in reduced form to make sure h is not overflow
+	if h2 & mask_high62bits != 0 {
+		panic("poly1305: h need reduced")
+	}
 	r0 := r.lo 
 	r1 := r.hi 
+	// multiplication of h and r, ie, h*r 
 	// 				h2		h1		h0
 	//						r1 		r0
 	//	-------------------------------x
-	//		           h2r0	  h1r0	h0r0 // 128 bit product
-	//         h2r1    h1r1   h0r1
-	//  --------------------------------
-	//         m3      m2     m1    m0      
-	//   -------------------------------
-	//   m3.hi     m2.hi     m1.hi  m0.hi
-	//             m3.lo     m2.lo  m1.lo   m0.lo
-	//  -----------------------------------------
-	//      t4     t3         t2    t1      t0
-	//  ------------------------------------------
+	//		           	h2r0	h1r0	h0r0 // individual 128 bit product
+	//         	h2r1	h1r1   	h0r1
+	//  ------------------------------------
+	//         	m3     	m2     	m1   	m0      
+	//   -----------------------------------
+	//   		m3.hi  	m2.hi   m1.hi  	m0.hi
+	//             	   	m3.lo   m2.lo  	m1.lo   m0.lo
+	//  --------------------------------------------
+	//      	t4     	t3     	t2     	t1     	t0
+	//  --------------------------------------------
+	// individual 128 bit product
 	h0r0 := u128_new(h0, r0)
 	h1r0 := u128_new(h1, r0)
 	h2r0 := u128_new(h2, r0)
@@ -225,8 +236,8 @@ fn (mut h Acc) mul_r(r unsigned.Uint128) {
 	h1r1 := u128_new(h1, r1)
 	h2r1 := u128_new(h2, r1)
 
-	m0 := h020 
-	m1, c0 := unsigned.add_128(h1r0, h1r1, 0) // (Uint128, u64)
+	m0 := h0r0 
+	m1, c0 := unsigned.add_128(h1r0, h0r1, 0) // (Uint128, u64)
 	m2, c1 := unsigned.add_128(h2r0, h1r1, c0)
 	m3, c2 := h2r1.overflowing_add_64(c1)
 	// should we check for c2 carry ?
@@ -245,10 +256,6 @@ fn (mut h Acc) mul_r(r unsigned.Uint128) {
 	// todo: cek validitas t4 
 }
 
-// select_64 returns x if v == 1 and y if v == 0, in constant time.
-fn select_64(v u64, x u64, y u64) u64 {
-	return ~(v - 1) & x | (v - 1) & y
-}
 
 // we adapt the go version
 fn finalize(mut out []u8, mut h unsigned.Uint256, s unsigned.Uint128) {
@@ -270,4 +277,15 @@ fn finalize(mut out []u8, mut h unsigned.Uint256, s unsigned.Uint128) {
 	// take only low 128 bit of h
 	binary.little_endian_put_u64(mut out[0..8], h.lo.lo)
 	binary.little_endian_put_u64(mut out[8..16], h.lo.hi)
+}
+
+
+// constant_time_eq_64 returns 1 when x == y.
+fn constant_time_eq_64(x u64, y u64) u64 {
+	return ((x ^ y) - 1) >> 63
+}
+
+// select_64 returns x if v == 1 and y if v == 0, in constant time.
+fn select_64(v u64, x u64, y u64) u64 {
+	return ~(v - 1) & x | (v - 1) & y
 }
