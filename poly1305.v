@@ -237,7 +237,12 @@ fn (mut h Acc) mul_r(r unsigned.Uint128) {
 	t0 := m0.lo
 	t1, c3 := bits.add_64(m0.hi, m1.lo, 0)
 	t2, c4 := bits.add_64(m1.hi, m2.lo, c3)
-	
+	t3, c5 := bits.add_64(m2.hi, m3.lo, c4)
+	t4, c6 := bits.add_64(m3.hi, 0, c5)
+	if c6 != 0 {
+		panic("poly1305: overflow")
+	}
+	// todo: cek validitas t4 
 }
 
 // select_64 returns x if v == 1 and y if v == 0, in constant time.
