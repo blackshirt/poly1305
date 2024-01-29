@@ -156,32 +156,7 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 			// drains the msg, we have reached the last block
 			msg = []u8{}
 		}
-		// multiplication of h and r, h *= r,
-		// TODO: better way to do h *= r
-		// struct Acc {
-		//		low 	unsigned.Uint128
-		//		hibit 	u8 	
-		// }
-		// 			h2		h1		h0		
-		// 							r		// 128 bit
-		// 	----------------------------x
-		//			rh2	  	rh1		rh0 	// individual Uint128 product
-		//  ----------------------------
-		// 		rh2.hi	rh1.hi	rh0.hi
-		//				rh2.lo	rh1.lo	rh0.lo
-		//	----------------------------------
-		rh0 := r.mul_64(h0) 
-		rh1 := r.mul_64(h1)
-		rh2 := r.mul_64(h2)
-
-		if rh2.hi != 0 {
-			panic("poly1305: unexpected overflow")
-		}
-
-		// propagates carry
-		t0 := rh0.lo
-		t1, c0 := bits.add_u64(rh1.lo, rh0.hi, 0)
-		t2, _ := bits.add_u64(rh2.lo, rh1.hi, c0)
+		
 		
 
 		// is this the right way to do reduction modulo p ?
@@ -192,81 +167,86 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 	}
 }
 
-// Accumulator, basically its a similar to go, [3]u64
-struct Acc {
-mut:
-	h [3]u64
-}
+// The poly1305 arithmatic accumulator. Basically, it is the same as 
+// the accumulator on the poly1305 in the Golang version.
+type Acc = [3]u64
 
 // u128_new creates new Uint128 from 64x64 bit product of x*y
 fn u128_new(x u64, y u64) unsigned.Uint128 {
 	hi, lo := bits.mul_64(x, y)
 	return unsigned.uint128_new(lo, hi)
 }
-			
-fn (mut h Acc) mul_r(r unsigned.Uint128) {
+
+// mul_by_r multiplies h by r
+fn (mut h Acc) mul_by_r(r unsigned.Uint128) !(u64, u64, u64, u64) {
 	// localize the thing
 	h0 := h[0]
 	h1 := h[1]
 	h2 := h[2]
-	// we need h is in correctly reduced form to make sure h is not overflow
+	// We need h to be in correctly reduced form to make sure h is not overflowing.
 	if h2 & mask_high62bits != 0 {
-		panic("poly1305: h need be reduced")
+		return error("poly1305: h need be reduced")
 	}
 	r0 := r.lo 
 	r1 := r.hi 
 	// multiplication of h and r, ie, h*r 
-	// 				h2		h1		h0
-	//						r1 		r0
-	//	-------------------------------x
-	//		           	h2r0	h1r0	h0r0 // individual 128 bit product
-	//         	h2r1	h1r1   	h0r1
-	//  ------------------------------------
-	//         	m3     	m2     	m1   	m0      
-	//   -----------------------------------
+	// 							h2		h1		h0
+	//									r1 		r0
+	//	---------------------------------------------x
+	//		           			h2r0	h1r0	h0r0 	// individual 128 bit product
+	//         			h2r1	h1r1   	h0r1
+	//  ---------------------------------------------
+	//         			m3     	m2     	m1   	m0      
+	//   --------------------------------------------
 	//   		m3.hi  	m2.hi   m1.hi  	m0.hi
 	//             	   	m3.lo   m2.lo  	m1.lo   m0.lo
-	//  --------------------------------------------
+	//  ---------------------------------------------
 	//      	t4     	t3     	t2     	t1     	t0
 	//  --------------------------------------------
-	// individual 128 bit product
+	// individual 128 bits product
 	h0r0 := u128_new(h0, r0)
 	h1r0 := u128_new(h1, r0)
 	h0r1 := u128_new(h0, r1)
 	h1r1 := u128_new(h1, r1)
 	
-	// for h2, its has been checked above, even its value has to be at most 7,
-	// (for marking h has been overflowing 130 bit), the product of h2 and r0/r1
-	// would not going to overflow to 64 bits (exactly, maximum at 63 bits)
-	// Its likes in the go comment did, 
+	// For h2, it has been checked above; even though its value has to be at most 7 
+	// (for marking h has been overflowing 130 bits), the product of h2 and r0/r1 
+	// would not go to overflow 64 bits (exactly, a maximum of 63 bits). 
+	// Its likes in the go comment did, we can ignore that high part of the product,
+	// ie, h2r0.hi and h2r1.hi is equal to zero, but we elevate check for this.
 	h2r0 := u128_new(h2, r0)
 	h2r1 := u128_new(h2, r1)
 		
-    // In properly clamped r, h*r would not overflow 128 bit,
-	// because r0 and r1 of r has been masked with rmask0 and rmask1 above.
-	// Its includes addition of uint128 result does not overflow 128 bit too.
-	// Its should c0 = c1 = c2 = 0
+    // In properly clamped r, h*r would not exceed 128 bits because r0 and r1 of r 
+	// are masked with rmask0 and rmask1 above. Its addition of uint128 result 
+	// does not overflow 128 bit either. So, in other words, it should be c0 = c1 = c2 = 0.
 	m0 := h0r0 
-	m1, c0 := unsigned.add_128(h1r0, h0r1, 0) // (Uint128, u64)
+	m1, c0 := unsigned.add_128(h1r0, h0r1, 0)
 	m2, c1 := unsigned.add_128(h2r0, h1r1, c0)
-	m3, c2 := h2r1.overflowing_add_64(c1)
-	// should we check for c2 carry ?
+	m3, c2 := h2r1.add_64(c1)
+	// for sake of clarity, we check c2 carry
 	if c2 != 0 {
-		panic("poly1305: overflow")
+		return error("poly1305: overflow")
 	}
-    // carry propagation
-	t0 := m0.lo
+
+	// Because the h2r1hi part is a zero, the m3 product only depends on h2r1lo.
+	// This also means m3hi is zero for a similar reason. Furthermore, 
+	// it tells us if the product doesn't have a fifth limb (t4), so we can ignore it.
+   	t0 := m0.lo
 	t1, c3 := bits.add_64(m0.hi, m1.lo, 0)
 	t2, c4 := bits.add_64(m1.hi, m2.lo, c3)
 	t3, c5 := bits.add_64(m2.hi, m3.lo, c4)
-	t4, c6 := bits.add_64(m3.hi, 0, c5)
-	if c6 != 0 {
-		panic("poly1305: overflow")
+	if c5 != 0 {
+		return error("poly1305: overflow")
 	}
-	// todo: cek validitas t4 
+	
+	// we return this 4 64-bit limbs
+	return  t0, t1, t2, t3
 }
 
-
+fn (mut h Acc) squeeze() {
+	
+}
 // we adapt the go version
 fn finalize(mut out []u8, mut h unsigned.Uint256, s unsigned.Uint128) {
 	assert out.len == poly1305.tag_size
