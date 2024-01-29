@@ -23,7 +23,7 @@ const rmask1 = u64(0x0FFFFFFC0FFFFFFC)
 // mask value for low 2 bits of u64 value 
 mask_low2bits = u64(0x0000000000000003)
 // mask value for high 62 bit of u64 value 
-mask_high62bits = u64(0xFFFFFFFFFFFFFFFC)
+	mask_high62bits = u64(0xfffffffffffffffc)
 
 // p is 130 bit of Poly1305 constant prime, ie 2^130-5
 // as defined in rfc, p = 3fffffffffffffffffffffffffffffffb
@@ -205,12 +205,13 @@ fn u128_new(x u64, y u64) unsigned.Uint128 {
 }
 			
 fn (mut h Acc) mul_r(r unsigned.Uint128) {
+	// localize the thing
 	h0 := h[0]
 	h1 := h[1]
 	h2 := h[2]
-	// we need h is in reduced form to make sure h is not overflow
+	// we need h is in correctly reduced form to make sure h is not overflow
 	if h2 & mask_high62bits != 0 {
-		panic("poly1305: h need reduced")
+		panic("poly1305: h need be reduced")
 	}
 	r0 := r.lo 
 	r1 := r.hi 
