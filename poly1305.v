@@ -104,7 +104,8 @@ fn (mut ctx Poly1305) update(mut p []u8) {
 // bits clear (be smaller than 16)
 // and,
 // even index bytes, ie,   r[4], r[8], and r[12] are required to have their bottom two bits
-// clear (be divisible by 4)
+// clear (be divisible by 4).
+// in 128 bits little endian form, the mask is 0x0ffffffc0ffffffc0ffffffc0fffffff
 fn clamp_r(mut r unsigned.Uint128) {
 	r.lo &= poly1305.rmask0
 	r.hi &= poly1305.rmask1
