@@ -6,6 +6,7 @@
 module poly1305
 
 import math
+import math.bits
 import math.unsigned
 import encoding.binary
 import crypto.internal.subtle
@@ -19,10 +20,12 @@ const tag_size = 16
 
 // mask value for clamping r part, ie, 0x0ffffffc0ffffffc0ffffffc0fffffff
 const rmask0 = u64(0x0FFFFFFC0FFFFFFF) // clears 10 bits
+
 const rmask1 = u64(0x0FFFFFFC0FFFFFFC) // clears 12 bits
-// mask value for low 2 bits of u64 value 
+
+// mask value for low 2 bits of u64 value
 const mask_low2bits = u64(0x0000000000000003)
-// mask value for high 62 bit of u64 value 
+// mask value for high 62 bit of u64 value
 const mask_high62bits = u64(0xfffffffffffffffc)
 
 // p is 130 bit of Poly1305 constant prime, ie 2^130-5
@@ -36,7 +39,7 @@ mut:
 	r unsigned.Uint128
 	s unsigned.Uint128
 	// Poly1305 arithmatic accumulator
-	acc [3]u64
+	h Acc
 	// buffer
 	buffer []u8 = []u8{len: poly1305.block_size}
 	offset int
@@ -70,7 +73,7 @@ fn (mut ctx Poly1305) sum(mut out []u8) {
 	if ctx.offset > 0 {
 		update_generic(mut ctx, mut ctx.buffer[..ctx.offset])
 	}
-	finalize(mut out, mut ctx.acc, ctx.s)
+	finalize(mut out, mut ctx.h, ctx.s)
 }
 
 fn (mut ctx Poly1305) write(buf []u8) !int {
@@ -114,9 +117,9 @@ fn clamp_r(mut r unsigned.Uint128) {
 // we follow the go version
 fn update_generic(mut ctx Poly1305, mut msg []u8) {
 	// localize the thing
-	mut h0 := ctx.acc[0]
-	mut h1 := ctx.acc[1]
-	mut h2 := ctx.acc[2]
+	mut h0 := ctx.h[0]
+	mut h1 := ctx.h[1]
+	mut h2 := ctx.h[2]
 	r := ctx.r
 	for msg.len > 0 {
 		// carry
@@ -130,8 +133,8 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 
 			// We add 128 bit msg with 64 bit from related accumulator
 			// just use Uint128.overflowing_add_64(v u64) (Uint128, u64)
-			h0, c = bits.add_64(h0, m.lo)
-			h1, c = bits.add_64(h1, m.hi)
+			h0, c = bits.add_64(h0, mlo, 0)
+			h1, c = bits.add_64(h1, mhi, c)
 			// The rfc requires us to set a bit just above the message size, ie,
 			// add one bit beyond the number of octets.  For a 16-byte block,
 			// this is equivalent to adding 2^128 to the number.
@@ -151,24 +154,21 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 			mi := binary.little_endian_u64(buf[8..16])
 			m := unsigned.uint128_new(mo, mi)
 
-			h0, c = bits.add_64(h0, m.lo)
-			h1, c = bits.add_64(h1, m.hi)
+			h0, c = bits.add_64(h0, mo, 0)
+			h1, c = bits.add_64(h1, mi, c)
 			h2 += c
 			// drains the msg, we have reached the last block
 			msg = []u8{}
 		}
-		
-		
-
-		// is this the right way to do reduction modulo p ?
-		h = h % poly1305.p
-
+		mut h := Acc([h0, h1, h2]!)
+		t := h.mul_by_r(r)
+		h.squeeze(t)
 		// update context state
-		ctx.acc = h
+		ctx.h = h
 	}
 }
 
-// The poly1305 arithmatic accumulator. Basically, it is the same as 
+// The poly1305 arithmatic accumulator. Basically, it is the same as
 // the accumulator on the poly1305 in the Golang version.
 type Acc = [3]u64
 
@@ -179,34 +179,34 @@ fn u128_mul(x u64, y u64) unsigned.Uint128 {
 }
 
 // mul_by_r multiplies h by r
-fn (mut h Acc) mul_by_r(r unsigned.Uint128) ![4]u64 {
+fn (mut h Acc) mul_by_r(r unsigned.Uint128) [4]u64 {
 	// for correctness and clarity, we check whether r is properly clamped.
 	// ie, r is masked by 0x0ffffffc0ffffffc0ffffffc0fffffff
 	if r.lo & u64(0xf0000003f0000000) != 0 {
-		return error("bad r.lo")
+		panic('bad r.lo')
 	}
 	if r.hi & u64(0xf0000003f0000003) != 0 {
-		return error("bad r.hi")
+		panic('bad r.hi')
 	}
-			
+
 	// localize the thing
 	h0 := h[0]
 	h1 := h[1]
 	h2 := h[2]
 	// We need h to be in correctly reduced form to make sure h is not overflowing.
-	if h2 & mask_high62bits != 0 {
-		return error("poly1305: h need to be reduced")
+	if h2 & poly1305.mask_high62bits != 0 {
+		panic('poly1305: h need to be reduced')
 	}
-	r0 := r.lo 
-	r1 := r.hi 
-	// multiplication of h and r, ie, h*r 
+	r0 := r.lo
+	r1 := r.hi
+	// multiplication of h and r, ie, h*r
 	// 							h2		h1		h0
 	//									r1 		r0
 	//	---------------------------------------------x
 	//		           			h2r0	h1r0	h0r0 	// individual 128 bit product
 	//         			h2r1	h1r1   	h0r1
 	//  ---------------------------------------------
-	//         			m3     	m2     	m1   	m0      
+	//         			m3     	m2     	m1   	m0
 	//   --------------------------------------------
 	//   		m3.hi  	m2.hi   m1.hi  	m0.hi
 	//             	   	m3.lo   m2.lo  	m1.lo   m0.lo
@@ -218,40 +218,40 @@ fn (mut h Acc) mul_by_r(r unsigned.Uint128) ![4]u64 {
 	h1r0 := u128_mul(h1, r0)
 	h0r1 := u128_mul(h0, r1)
 	h1r1 := u128_mul(h1, r1)
-	
+
 	// For h2, it has been checked above; even though its value has to be at most 7 
-	// (for marking h has been overflowing 130 bits), the product of h2 and r0/r1 
+	// (for marking h has been overflowing 130 bits), the product of h2 and r0/r1
 	// would not go to overflow 64 bits (exactly, a maximum of 63 bits). 
 	// Its likes in the go comment did, we can ignore that high part of the product,
 	// ie, h2r0.hi and h2r1.hi is equal to zero, but we elevate check for this.
 	h2r0 := u128_mul(h2, r0)
 	h2r1 := u128_mul(h2, r1)
-		
-    // In properly clamped r, product of h*r would not exceed 128 bits because r0 and r1 of r 
-	// are masked with rmask0 and rmask1 above. Its addition of unsigned.Uint128 result 
+
+	// In properly clamped r, product of h*r would not exceed 128 bits because r0 and r1 of r
+	// are masked with rmask0 and rmask1 above. Its addition of unsigned.Uint128 result
 	// does not overflow 128 bit either. So, in other words, it should be c0 = c1 = c2 = 0.
-	m0 := h0r0 
+	m0 := h0r0
 	m1, c0 := unsigned.add_128(h1r0, h0r1, 0)
 	m2, c1 := unsigned.add_128(h2r0, h1r1, c0)
-	m3, c2 := h2r1.add_64(c1)
+	m3, c2 := h2r1.overflowing_add_64(c1)
 	// for sake of clarity, we check c2 carry
 	if c2 != 0 {
-		return error("poly1305: overflow")
+		panic('poly1305: overflow')
 	}
 
 	// Because the h2r1hi part is a zero, the m3 product only depends on h2r1lo.
-	// This also means m3hi is zero for a similar reason. Furthermore, 
+	// This also means m3hi is zero for a similar reason. Furthermore,
 	// it tells us if the product doesn't have a fifth limb (t4), so we can ignore it.
-   	t0 := m0.lo
+	t0 := m0.lo
 	t1, c3 := bits.add_64(m0.hi, m1.lo, 0)
 	t2, c4 := bits.add_64(m1.hi, m2.lo, c3)
 	t3, c5 := bits.add_64(m2.hi, m3.lo, c4)
 	if c5 != 0 {
-		return error("poly1305: overflow")
+		panic('poly1305: overflow')
 	}
-	
+
 	// we return this 4 64-bit limbs
-	return  [t0, t1, t2, t3]!
+	return [t0, t1, t2, t3]!
 }
 
 // squeeze reduces accumulator by doing partial reduction module p
@@ -259,9 +259,9 @@ fn (mut h Acc) mul_by_r(r unsigned.Uint128) ![4]u64 {
 fn (mut h Acc) squeeze(t [4]u64) {
 	// we follow the go version, by splitting from previous result in `t`
 	// at the 2¹³⁰ mark into h and cc, the carry.
-	// begin by splitting t 
-	mut h0, mut h1, mut h2 := t[0], t[1], t[2] & mask_low2bits // 130 bit of h 
-	mut cc := unsigned.uint128_new(t[2] & mask_high62bits, t[3])
+	// begin by splitting t
+	mut h0, mut h1, mut h2 := t[0], t[1], t[2] & poly1305.mask_low2bits // 130 bit of h
+	mut cc := unsigned.uint128_new(t[2] & poly1305.mask_high62bits, t[3])
 
 	mut c := u64(0)
 	h0, c = bits.add_64(h0, cc.lo, 0)
@@ -274,20 +274,22 @@ fn (mut h Acc) squeeze(t [4]u64) {
 	h1, c = bits.add_64(h1, cc.hi, c)
 	h2 += c
 
-	h[0] = h0 
-	h[1] = h1 
+	h[0] = h0
+	h[1] = h1
 	h[2] = h2
 }
 
 // we adapt the go version
 fn finalize(mut out []u8, mut h Acc, s unsigned.Uint128) {
 	assert out.len == poly1305.tag_size
+	mut h0 := h[0]
+	mut h1 := h[1]
+	mut h2 := h[2]
 	// compute t = h - p = h - (2¹³⁰ - 5), and select h as the result if the
 	// subtraction underflows, and t otherwise.
-	t0, b0 := bits.sub_64(h0, p[0], 0)
-	t1, b1 := bits.sub_64(h1, p[1], b0)
-	_, b2 = bits.sub_64(h2, p[2], b1)
-	
+	t0, b0 := bits.sub_64(h0, poly1305.p[0], 0)
+	t1, b1 := bits.sub_64(h1, poly1305.p[1], b0)
+	_, b2 := bits.sub_64(h2, poly1305.p[2], b1)
 
 	// h = h if h < p else h - p
 	h0 = select_64(b2, h0, t0)
@@ -295,14 +297,14 @@ fn finalize(mut out []u8, mut h Acc, s unsigned.Uint128) {
 
 	// Finally, we compute tag = h + s  mod  2¹²⁸
 	// s is 128 bit of ctx.s, ie, Uint128
-	h0, c := bits.add_64(h0, s.lo, 0)
+	mut c := u64(0)
+	h0, c = bits.add_64(h0, s.lo, 0)
 	h1, _ = bits.add_64(h1, s.hi, c)
 
 	// take only low 128 bit of h
-	binary.little_endian_put_u64(mut out[0..8], h.lo.lo)
-	binary.little_endian_put_u64(mut out[8..16], h.lo.hi)
+	binary.little_endian_put_u64(mut out[0..8], h0)
+	binary.little_endian_put_u64(mut out[8..16], h1)
 }
-
 
 // constant_time_eq_64 returns 1 when x == y.
 fn constant_time_eq_64(x u64, y u64) u64 {
@@ -314,9 +316,8 @@ fn select_64(v u64, x u64, y u64) u64 {
 	return ~(v - 1) & x | (v - 1) & y
 }
 
-
-func shift_right_by2(mut a unsigned.Uint128) unsigned.Uint128 {
-	a.lo = a.lo>>2 | (a.hi&3)<<62
+fn shift_right_by2(mut a unsigned.Uint128) unsigned.Uint128 {
+	a.lo = a.lo >> 2 | (a.hi & 3) << 62
 	a.hi = a.hi >> 2
 	return a
 }
