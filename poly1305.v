@@ -18,12 +18,12 @@ const key_size = 32
 const tag_size = 16
 
 // mask value for clamping r part
-const rmask0 = u64(0x0FFFFFFC0FFFFFFF)
-const rmask1 = u64(0x0FFFFFFC0FFFFFFC)
+const rmask0 = u64(0x0FFFFFFC0FFFFFFF) // clears 10 bits
+const rmask1 = u64(0x0FFFFFFC0FFFFFFC) // clears 12 bits
 // mask value for low 2 bits of u64 value 
-mask_low2bits = u64(0x0000000000000003)
+const mask_low2bits = u64(0x0000000000000003)
 // mask value for high 62 bit of u64 value 
-	mask_high62bits = u64(0xfffffffffffffffc)
+const mask_high62bits = u64(0xfffffffffffffffc)
 
 // p is 130 bit of Poly1305 constant prime, ie 2^130-5
 // as defined in rfc, p = 3fffffffffffffffffffffffffffffffb
@@ -178,7 +178,17 @@ fn u128_new(x u64, y u64) unsigned.Uint128 {
 }
 
 // mul_by_r multiplies h by r
-fn (mut h Acc) mul_by_r(r unsigned.Uint128) !(u64, u64, u64, u64) {
+fn (mut h Acc) mul_by_r(r unsigned.Uint128) ![4]u64 {
+	// for correctness and clarity, we check if r is properly clamped.
+	// for r.lo most 4 top bits is cleared, and the rest 6 bits also cleared by rmask0.
+	// for r.hi
+	if r.lo & u64(0xf0000003f0000000) != 0 {
+		return error("bad r.lo")
+	}
+	if r.hi & u64(0xf0000003f0000003) != 0 {
+		return error("bad r.hi")
+	}
+			
 	// localize the thing
 	h0 := h[0]
 	h1 := h[1]
