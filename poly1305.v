@@ -17,7 +17,7 @@ const key_size = 32
 // tag_size is size of output of Poly1305 result, in bytes
 const tag_size = 16
 
-// mask value for clamping r part
+// mask value for clamping r part, ie, 0x0ffffffc0ffffffc0ffffffc0fffffff
 const rmask0 = u64(0x0FFFFFFC0FFFFFFF) // clears 10 bits
 const rmask1 = u64(0x0FFFFFFC0FFFFFFC) // clears 12 bits
 // mask value for low 2 bits of u64 value 
