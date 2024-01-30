@@ -282,16 +282,16 @@ fn (mut h Acc) squeeze(t [4]u64) {
 // we adapt the go version
 fn finalize(mut out []u8, mut h Acc, s unsigned.Uint128) {
 	assert out.len == poly1305.tag_size
-	// compute t = h - (2¹³⁰ - 5), and select h as the result if the
+	// compute t = h - p = h - (2¹³⁰ - 5), and select h as the result if the
 	// subtraction underflows, and t otherwise.
-	hminp0, b0 := bits.sub_64(h0, p[0], 0)
-	hminp1, b1 := bits.sub_64(h1, p[1], b0)
+	t0, b0 := bits.sub_64(h0, p[0], 0)
+	t1, b1 := bits.sub_64(h1, p[1], b0)
 	_, b2 = bits.sub_64(h2, p[2], b1)
 	
 
 	// h = h if h < p else h - p
-	h.lo.lo = select_64(b2, h.lo.lo, t.lo.lo)
-	h.lo.hi = select_64(b2, h.lo.hi, t.lo.hi)
+	h0 = select_64(b2, h0, t0)
+	h1 = select_64(b2, h1, t1)
 
 	// Finally, we compute tag = h + s  mod  2¹²⁸
 	// s is 128 bit of ctx.s, ie, Uint128
