@@ -37,7 +37,7 @@ mut:
 	r unsigned.Uint128
 	s unsigned.Uint128
 	// Poly1305 arithmatic accumulator
-	h Acc
+	h [3]u64
 	// buffer
 	buffer []u8 = []u8{len: poly1305.block_size}
 	offset int
@@ -238,7 +238,7 @@ fn u128_mul(x u64, y u64) unsigned.Uint128 {
 }
 
 // we adapt the go version
-fn finalize(mut out []u8, mut h Acc, s unsigned.Uint128) {
+fn finalize(mut out []u8, mut h [3]u64, s unsigned.Uint128) {
 	assert out.len == poly1305.tag_size
 	mut h0 := h[0]
 	mut h1 := h[1]
