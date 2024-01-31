@@ -5,7 +5,6 @@
 // Poly1305 one time message authentication code (MAC)
 module poly1305
 
-import math
 import math.bits
 import math.unsigned
 import encoding.binary
@@ -18,15 +17,14 @@ const key_size = 32
 // tag_size is size of output of Poly1305 result, in bytes
 const tag_size = 16
 // mask value for clamping r part, ie, 0x0ffffffc0ffffffc0ffffffc0fffffff
-const rmask0 = u64(0x0FFFFFFC0FFFFFFF) // clears 10 bits
-
-// for high 64 bits of r
-const rmask1 = u64(0x0FFFFFFC0FFFFFFC) // clears 12 bits
+const rmask0 = u64(0x0FFFFFFC0FFFFFFF)
+// for high 64 bits of r, clear 12 bits
+const rmask1 = u64(0x0FFFFFFC0FFFFFFC)
 
 // mask value for low 2 bits of u64 value
 const mask_low2bits = u64(0x0000000000000003)
-// mask value for high 62 bit of u64 value
-const mask_high62bits = u64(0xfffffffffffffffc)
+// mask value for high 62 bit of u64 value, u64(0xfffffffffffffffc)
+const mask_high62bits = ~mask_low2bits
 
 // p is 130 bit of Poly1305 constant prime, ie 2^130-5
 // as defined in rfc, p = 3fffffffffffffffffffffffffffffffb
@@ -52,10 +50,10 @@ fn new(key []u8) !&Poly1305 {
 		return error('poly1305: bad key length')
 	}
 	// read r part from key and clamping it
-	lo := binary.little_endian_u64(key[0..8])
-	hi := binary.little_endian_u64(key[8..16])
-	mut r := unsigned.uint128_new(lo, hi)
-	clamp_r(mut r)
+	lo := binary.little_endian_u64(key[0..8]) & poly1305.rmask0
+	hi := binary.little_endian_u64(key[8..16]) & poly1305.rmask1
+	r := unsigned.uint128_new(lo, hi)
+	// clamp_r(mut r)
 
 	// read s part from the rest bytes of key
 	so := binary.little_endian_u64(key[16..24])
@@ -100,19 +98,6 @@ fn (mut ctx Poly1305) update(mut p []u8) {
 	if p.len > 0 {
 		ctx.offset += copy(mut ctx.buffer[ctx.offset..], p)
 	}
-}
-
-// clamp_r does clearing some bits of r before being used.
-// the spec says, the bits thats required to be clamped:
-// odd index bytes, ie,  r[3], r[7], r[11], and r[15] are required to have their top four
-// bits clear (be smaller than 16)
-// and,
-// even index bytes, ie,   r[4], r[8], and r[12] are required to have their bottom two bits
-// clear (be divisible by 4).
-// in 128 bits little endian form, the mask is 0x0ffffffc0ffffffc0ffffffc0fffffff
-fn clamp_r(mut r unsigned.Uint128) {
-	r.lo &= poly1305.rmask0
-	r.hi &= poly1305.rmask1
 }
 
 // we follow the go version
@@ -161,7 +146,8 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 		} else {
 			// If the msg block is not 16 bytes long (the last block), pad it with zeros.
 			mut buf := []u8{len: poly1305.block_size}
-			subtle.constant_time_copy(1, mut buf[..msg.len], msg)
+			// subtle.constant_time_copy(1, mut buf[..msg.len], msg)
+			_ := copy(mut buf, msg)
 			buf[msg.len] = u8(0x01)
 
 			// Add this number to the accumulator, ie, h += m
@@ -218,13 +204,13 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 		// it tells us if the product doesn't have a fifth limb (t4), so we can ignore it.
 		t0 := m0.lo
 		mut t1, mut t2, mut t3 := u64(0), u64(0), u64(0)
-		t1, c = bits.add_64(m0.hi, m1.lo, 0)
-		t2, c = bits.add_64(m1.hi, m2.lo, c)
-		t3, _ = bits.add_64(m2.hi, m3.lo, c)
+		t1, c = bits.add_64(m1.lo, m0.hi, 0)
+		t2, c = bits.add_64(m2.lo, m1.hi, c)
+		t3, _ = bits.add_64(m3.lo, m2.hi, c)
 
 		// squeeze
 		h0, h1, h2 = t0, t1, t2 & poly1305.mask_low2bits // 130 bit of h
-		mut cc := unsigned.uint128_new(t2 & poly1305.mask_high62bits, t3)
+		mut cc := unsigned.Uint128{t2 & poly1305.mask_high62bits, t3}
 
 		h0, c = bits.add_64(h0, cc.lo, 0)
 		h1, c = bits.add_64(h1, cc.hi, c)
@@ -249,6 +235,66 @@ type Acc = [3]u64
 fn u128_mul(x u64, y u64) unsigned.Uint128 {
 	hi, lo := bits.mul_64(x, y)
 	return unsigned.uint128_new(lo, hi)
+}
+
+// we adapt the go version
+fn finalize(mut out []u8, mut h Acc, s unsigned.Uint128) {
+	assert out.len == poly1305.tag_size
+	mut h0 := h[0]
+	mut h1 := h[1]
+	mut h2 := h[2]
+	// compute t = h - p = h - (2¹³⁰ - 5), and select h as the result if the
+	// subtraction underflows, and t otherwise.
+	mut b := u64(0)
+	mut t0, mut t1, mut t2 := u64(0), u64(0), u64(0)
+	t0, b = bits.sub_64(h0, poly1305.p[0], 0)
+	t1, b = bits.sub_64(h1, poly1305.p[1], b)
+	t2, b = bits.sub_64(h2, poly1305.p[2], b)
+
+	// h = h if h < p else h - p
+	h0 = select_64(b, h0, t0)
+	h1 = select_64(b, h1, t1)
+
+	// Finally, we compute tag = h + s  mod  2¹²⁸
+	// s is 128 bit of ctx.s, ie, Uint128
+	mut c := u64(0)
+	h0, c = bits.add_64(h0, s.lo, 0)
+	h1, _ = bits.add_64(h1, s.hi, c)
+
+	// take only low 128 bit of h
+	binary.little_endian_put_u64(mut out[0..8], h0)
+	binary.little_endian_put_u64(mut out[8..16], h1)
+}
+
+// constant_time_eq_64 returns 1 when x == y.
+fn constant_time_eq_64(x u64, y u64) u64 {
+	return ((x ^ y) - 1) >> 63
+}
+
+// select_64 returns x if v == 1 and y if v == 0, in constant time.
+fn select_64(v u64, x u64, y u64) u64 {
+	return ~(v - 1) & x | (v - 1) & y
+}
+
+fn shift_right_by2(mut a unsigned.Uint128) unsigned.Uint128 {
+	a.lo = a.lo >> 2 | (a.hi & 3) << 62
+	a.hi = a.hi >> 2
+	return a
+}
+
+fn mul_64_x(a u64, b u64) unsigned.Uint128 {
+	hi, lo := bits.mul_64(a, b)
+	r := unsigned.Uint128{lo, hi}
+	return r
+}
+
+fn add_128(a unsigned.Uint128, b unsigned.Uint128) unsigned.Uint128 {
+	lo, c0 := bits.add_64(a.lo, b.lo, 0)
+	hi, c1 := bits.add_64(a.hi, b.hi, c0)
+	if c1 != 0 {
+		panic('poly1305: unexpected overflow')
+	}
+	return unsigned.Uint128{lo, hi}
 }
 
 // mul_by_r multiplies h by r
@@ -346,61 +392,15 @@ fn squeeze(t [4]u64) [3]u64 {
 	return [h0, h1, h2]!
 }
 
-// we adapt the go version
-fn finalize(mut out []u8, mut h Acc, s unsigned.Uint128) {
-	assert out.len == poly1305.tag_size
-	mut h0 := h[0]
-	mut h1 := h[1]
-	mut h2 := h[2]
-	// compute t = h - p = h - (2¹³⁰ - 5), and select h as the result if the
-	// subtraction underflows, and t otherwise.
-	mut b := u64(0)
-	mut t0, mut t1, mut t2 := u64(0), u64(0), u64(0)
-	t0, b = bits.sub_64(h0, poly1305.p[0], 0)
-	t1, b = bits.sub_64(h1, poly1305.p[1], b)
-	t2, b = bits.sub_64(h2, poly1305.p[2], b)
-
-	// h = h if h < p else h - p
-	h0 = select_64(b, h0, t0)
-	h1 = select_64(b, h1, t1)
-
-	// Finally, we compute tag = h + s  mod  2¹²⁸
-	// s is 128 bit of ctx.s, ie, Uint128
-	mut c := u64(0)
-	h0, c = bits.add_64(h0, s.lo, 0)
-	h1, _ = bits.add_64(h1, s.hi, c)
-
-	// take only low 128 bit of h
-	binary.little_endian_put_u64(mut out[0..8], h0)
-	binary.little_endian_put_u64(mut out[8..16], h1)
-}
-
-// constant_time_eq_64 returns 1 when x == y.
-fn constant_time_eq_64(x u64, y u64) u64 {
-	return ((x ^ y) - 1) >> 63
-}
-
-// select_64 returns x if v == 1 and y if v == 0, in constant time.
-fn select_64(v u64, x u64, y u64) u64 {
-	return ~(v - 1) & x | (v - 1) & y
-}
-
-fn shift_right_by2(mut a unsigned.Uint128) unsigned.Uint128 {
-	a.lo = a.lo >> 2 | (a.hi & 3) << 62
-	a.hi = a.hi >> 2
-	return a
-}
-
-fn mul_64_x(a u64, b u64) unsigned.Uint128 {
-	hi, lo := bits.mul_u64(a, b)
-	return unsigned.Uint128{lo, hi}
-}
-
-fn add_128(a unsigned.Uint128, b unsigned.Uint128) unsigned.Uint128 {
-	lo, c0 := bits.add_64(a.lo, b.lo, 0)
-	hi, c1 := bits.add_64(a.hi, b.hi, c0)
-	if c1 != 0 {
-		panic('poly1305: unexpected overflow')
-	}
-	return unsigned.Uint128{lo, hi}
+// clamp_r does clearing some bits of r before being used.
+// the spec says, the bits thats required to be clamped:
+// odd index bytes, ie,  r[3], r[7], r[11], and r[15] are required to have their top four
+// bits clear (be smaller than 16)
+// and,
+// even index bytes, ie,   r[4], r[8], and r[12] are required to have their bottom two bits
+// clear (be divisible by 4).
+// in 128 bits little endian form, the mask is 0x0ffffffc0ffffffc0ffffffc0fffffff
+fn clamp_r(mut r unsigned.Uint128) {
+	r.lo &= poly1305.rmask0
+	r.hi &= poly1305.rmask1
 }
