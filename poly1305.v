@@ -51,10 +51,10 @@ fn new(key []u8) !&Poly1305 {
 		return error('poly1305: bad key length')
 	}
 	// read r part from key and clamping it
-	lo := binary.little_endian_u64(key[0..8]) & poly1305.rmask0
-	hi := binary.little_endian_u64(key[8..16]) & poly1305.rmask1
-	r := unsigned.uint128_new(lo, hi)
-	// clamp_r(mut r)
+	lo := binary.little_endian_u64(key[0..8])
+	hi := binary.little_endian_u64(key[8..16])
+	mut r := unsigned.uint128_new(lo, hi)
+	clamp_r(mut r)
 
 	// read s part from the rest bytes of key
 	so := binary.little_endian_u64(key[16..24])
@@ -68,52 +68,51 @@ fn new(key []u8) !&Poly1305 {
 	return ctx
 }
 
-fn (mut ctx Poly1305) sum(mut out []u8) {
-	mut po := ctx
+fn (mut po Poly1305) sum(mut out []u8) {
 	if po.leftover > 0 {
 		update_generic(mut po, mut po.buffer[..po.leftover])
 	}
 	finalize(mut out, mut po.h, po.s)
 }
 
-fn (mut ctx Poly1305) update(mut p []u8) {
-	if ctx.leftover > 0 {
-		n := copy(mut ctx.buffer[ctx.leftover..], p)
-		if ctx.leftover + n < poly1305.block_size {
-			ctx.leftover += n
+fn (mut po Poly1305) update(mut p []u8) {
+	if po.leftover > 0 {
+		n := copy(mut po.buffer[po.leftover..], p)
+		if po.leftover + n < poly1305.block_size {
+			po.leftover += n
 			return
 		}
 		p = unsafe { p[n..] }
-		ctx.leftover = 0
-		update_generic(mut ctx, mut ctx.buffer)
+		po.leftover = 0
+		update_generic(mut po, mut po.buffer)
 	}
 	nn := p.len - p.len % poly1305.tag_size
 	if nn > 0 {
-		update_generic(mut ctx, mut p[..nn])
+		update_generic(mut po, mut p[..nn])
 		p = unsafe { p[nn..] }
 	}
 	if p.len > 0 {
-		ctx.leftover += copy(mut ctx.buffer[ctx.leftover..], p)
+		po.leftover += copy(mut po.buffer[po.leftover..], p)
 	}
 }
 
 // we follow the go version
-fn update_generic(mut ctx Poly1305, mut msg []u8) {
+fn update_generic(mut po Poly1305, mut msg []u8) {
 	// for correctness and clarity, we check whether r is properly clamped.
 	// ie, r is masked by 0x0ffffffc0ffffffc0ffffffc0fffffff
-	if ctx.r.lo & u64(0xf0000003f0000000) != 0 {
+	if po.r.lo & u64(0xf0000003f0000000) != 0 {
 		panic('bad r.lo')
 	}
-	if ctx.r.hi & u64(0xf0000003f0000003) != 0 {
+	if po.r.hi & u64(0xf0000003f0000003) != 0 {
 		panic('bad r.hi')
 	}
 
 	// localize the thing
-	mut h0 := ctx.h[0]
-	mut h1 := ctx.h[1]
-	mut h2 := ctx.h[2]
-	r0 := ctx.r.lo
-	r1 := ctx.r.hi
+	mut h0 := po.h[0]
+	mut h1 := po.h[1]
+	mut h2 := po.h[2]
+	r0 := po.r.lo
+	r1 := po.r.hi
 	// We need h to be in correctly reduced form to make sure h is not overflowing.
 	if h2 & poly1305.mask_high62bits != 0 {
 		panic('poly1305: h need to be reduced')
@@ -143,8 +142,7 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 		} else {
 			// If the msg block is not 16 bytes long (the last block), pad it with zeros.
 			mut buf := []u8{len: poly1305.block_size}
-			// subtle.constant_time_copy(1, mut buf[..msg.len], msg)
-			_ := copy(mut buf, msg)
+			subtle.constant_time_copy(1, mut buf[..msg.len], msg)
 			buf[msg.len] = u8(0x01)
 
 			// Add this number to the accumulator, ie, h += m
@@ -219,44 +217,44 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 		h1, c = bits.add_64(h1, cc.hi, c)
 		h2 += c
 	}
-	ctx.h[0] = h0
-	ctx.h[1] = h1
-	ctx.h[2] = h2
+	po.h[0] = h0
+	po.h[1] = h1
+	po.h[2] = h2
 }
 
-fn (mut ctx Poly1305) write(mut m []u8) {
-	if ctx.done {
+fn (mut po Poly1305) write(mut m []u8) {
+	if po.done {
 		panic(error('poly1305: feed input after result has been done'))
 	}
-	if ctx.leftover > 0 {
-		want := math.min(16 - ctx.leftover, m.len)
+	if po.leftover > 0 {
+		want := math.min(16 - po.leftover, m.len)
 		mm := unsafe { m[..want] }
 		// for (i, byte) in m.iter().cloned().enumerate().take(want) {
 		for i, v in mm {
-			ctx.buffer[ctx.leftover + i] = v
+			po.buffer[po.leftover + i] = v
 		}
 
 		m = unsafe { m[want..] }
-		ctx.leftover += want
+		po.leftover += want
 
-		if ctx.leftover < poly1305.block_size {
+		if po.leftover < poly1305.block_size {
 			return
 		}
-		update_generic(mut ctx, mut m)
-		ctx.leftover = 0
+		update_generic(mut po, mut m)
+		po.leftover = 0
 	}
 
 	for m.len >= poly1305.block_size {
 		// TODO(tarcieri): avoid a copy here but do for now
 		// because it simplifies constant-time assessment.
-		subtle.constant_time_copy(1, mut ctx.buffer, m[..poly1305.block_size])
-		update_generic(mut ctx, mut ctx.buffer)
+		subtle.constant_time_copy(1, mut po.buffer, m[..poly1305.block_size])
+		update_generic(mut po, mut po.buffer)
 		m = unsafe { m[poly1305.block_size..] }
 	}
 
 	// p.buffer[..m.len].copy_from_slice(m);
-	subtle.constant_time_copy(1, mut ctx.buffer[..m.len], m)
-	ctx.leftover = m.len
+	subtle.constant_time_copy(1, mut po.buffer[..m.len], m)
+	po.leftover = m.len
 }
 
 // The poly1305 arithmatic accumulator. Basically, it is the same as
@@ -288,7 +286,7 @@ fn finalize(mut out []u8, mut h [3]u64, s unsigned.Uint128) {
 	h1 = select_64(b, h1, t1)
 
 	// Finally, we compute tag = h + s  mod  2¹²⁸
-	// s is 128 bit of ctx.s, ie, Uint128
+	// s is 128 bit of po.s, ie, Uint128
 	mut c := u64(0)
 	h0, c = bits.add_64(h0, s.lo, 0)
 	h1, _ = bits.add_64(h1, s.hi, c)
