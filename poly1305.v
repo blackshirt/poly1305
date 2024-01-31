@@ -192,18 +192,18 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 		//      	t4     	t3     	t2     	t1     	t0
 		//  --------------------------------------------
 		// individual 128 bits product
-		h0r0 := mul_64(h0, r0)
-		h1r0 := mul_64(h1, r0)
-		h0r1 := mul_64(h0, r1)
-		h1r1 := mul_64(h1, r1)
+		h0r0 := mul_64_x(h0, r0)
+		h1r0 := mul_64_x(h1, r0)
+		h0r1 := mul_64_x(h0, r1)
+		h1r1 := mul_64_x(h1, r1)
 
 		// For h2, it has been checked above; even though its value has to be at most 7 
 		// (for marking h has been overflowing 130 bits), the product of h2 and r0/r1
 		// would not go to overflow 64 bits (exactly, a maximum of 63 bits). 
 		// Its likes in the go comment did, we can ignore that high part of the product,
 		// ie, h2r0.hi and h2r1.hi is equal to zero, but we elevate check for this.
-		h2r0 := mul_64(h2, r0)
-		h2r1 := mul_64(h2, r1)
+		h2r0 := mul_64_x(h2, r0)
+		h2r1 := mul_64_x(h2, r1)
 
 		// In properly clamped r, product of h*r would not exceed 128 bits because r0 and r1 of r
 		// are masked with rmask0 and rmask1 above. Its addition of unsigned.Uint128 result
@@ -283,18 +283,18 @@ fn mul_h_by_r(mut h Acc, r unsigned.Uint128) [4]u64 {
 	//      	t4     	t3     	t2     	t1     	t0
 	//  --------------------------------------------
 	// individual 128 bits product
-	h0r0 := mul_64(h[0], r0)
-	h1r0 := mul_64(h[1], r0)
-	h0r1 := mul_64(h[0], r1)
-	h1r1 := mul_64(h[1], r1)
+	h0r0 := mul_64_x(h[0], r0)
+	h1r0 := mul_64_x(h[1], r0)
+	h0r1 := mul_64_x(h[0], r1)
+	h1r1 := mul_64_x(h[1], r1)
 
 	// For h[2], it has been checked above; even though its value has to be at most 7 
 	// (for marking h has been overflowing 130 bits), the product of h2 and r0/r1
 	// would not go to overflow 64 bits (exactly, a maximum of 63 bits). 
 	// Its likes in the go comment did, we can ignore that high part of the product,
 	// ie, h2r0.hi and h2r1.hi is equal to zero, but we elevate check for this.
-	h2r0 := mul_64(h[2], r0)
-	h2r1 := mul_64(h[2], r1)
+	h2r0 := mul_64_x(h[2], r0)
+	h2r1 := mul_64_x(h[2], r1)
 
 	// In properly clamped r, product of h*r would not exceed 128 bits because r0 and r1 of r
 	// are masked with rmask0 and rmask1 above. Its addition of unsigned.Uint128 result
@@ -391,7 +391,7 @@ fn shift_right_by2(mut a unsigned.Uint128) unsigned.Uint128 {
 	return a
 }
 
-fn mul_64(a u64, b u64) unsigned.Uint128 {
+fn mul_64_x(a u64, b u64) unsigned.Uint128 {
 	hi, lo := bits.mul_u64(a, b)
 	return unsigned.Uint128{lo, hi}
 }
