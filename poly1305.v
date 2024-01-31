@@ -33,7 +33,8 @@ const p = [u64(0xFFFFFFFFFFFFFFFB), u64(0xFFFFFFFFFFFFFFFF), u64(0x0000000000000
 
 struct Poly1305 {
 mut:
-	// 32 bytes of key input is partitioned into two's 128 bit parts, r and s
+	// Poly1305 instance accepts 32 bytes of key input. 
+	// This key is partitioned into two's 128 bit parts, r and s
 	// where r is clamped before stored.
 	r unsigned.Uint128
 	s unsigned.Uint128
@@ -245,7 +246,6 @@ fn (mut po Poly1305) write(mut m []u8) {
 	}
 
 	for m.len >= poly1305.block_size {
-		// TODO(tarcieri): avoid a copy here but do for now
 		// because it simplifies constant-time assessment.
 		subtle.constant_time_copy(1, mut po.buffer, m[..poly1305.block_size])
 		update_generic(mut po, mut po.buffer)
