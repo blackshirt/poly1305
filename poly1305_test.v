@@ -8,23 +8,31 @@ fn test_poly1305_core_vector_tests() ! {
 	for i, c in poly1305.basic_poly_cases {
 		mut key := hex.decode(c.key) or { panic(err.msg()) }
 		mut msg := hex.decode(c.msg) or { panic(err.msg()) }
+		mut msg2 := msg.clone()
+		msg3 := msg.clone()
 		expected_tag := hex.decode(c.tag) or { panic(err.msg()) }
 
 		mut tag := []u8{len: tag_size}
 
-		mut ctx := new(key)!
-		update_generic(mut ctx, mut msg)
-		finalize(mut tag, mut ctx.h, ctx.s)
-		// poly.sum(mut tag)
-		// poly1305.input(msg) // this could should lead to panic, becaus `.result()` setup done to true
+		mut p1 := new(key)!
+		update_generic(mut p1, mut msg)
+		finalize(mut tag, mut p1.h, p1.s)
+		assert tag == expected_tag
+
+		// check for instance based method
+		mut p2 := new(key)!
+		// msg is mut, so we provide the clone
+		p2.update_block(mut msg2)
+		p2.finish(mut tag)
 		// check tag same with expected_tag
 		assert tag == expected_tag
 		// verify the tag has right result
-		// assert verify(tag, msg, key) == true
+		assert verify(tag, msg3, key) == true
 
-		// mac := new_tag(msg, key)
-		// assert mac == expected_tag
-		// assert verify(mac, msg, key) == true
+		mut tag2 := []u8{len: tag_size}
+		mac(mut tag2, msg3, key)!
+		assert tag2 == expected_tag
+		assert verify(tag2, msg3, key) == true
 	}
 }
 
@@ -39,7 +47,7 @@ fn test_smoked_data_vectors() ! {
 		mut poly := new(key)!
 		mut tag := []u8{len: tag_size}
 
-		poly.update(mut msg)
+		poly.update_block(mut msg)
 		poly.sum(mut tag)
 
 		assert tag == expected_tag

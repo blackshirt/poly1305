@@ -11,15 +11,15 @@ import math.unsigned
 import encoding.binary
 import crypto.internal.subtle
 
-// block_size is internal size of Poly1305 block that operates on
+// block_size is the internal size of the Poly1305 block that operates on
 const block_size = 16
-// key_size is 256 bit one-time key size for input to Poly1305 mac, in bytes
+// key_size is a 256-bit one-time key size for input to Poly1305 mac in bytes.
 const key_size = 32
-// tag_size is size of output of Poly1305 result, in bytes
+// tag_size is the size of the output of the Poly1305 result, in bytes.
 const tag_size = 16
-// mask value for clamping low 64 bit of r part, clearing 10 bits
+// mask value for clamping low 64 bits of the r part, clearing 10 bits
 const rmask0 = u64(0x0FFFFFFC0FFFFFFF)
-// mask value for clamping high 64 bit of r part, clearing 12 bits
+// mask value for clamping high 64 bits of the r part, clearing 12 bits
 const rmask1 = u64(0x0FFFFFFC0FFFFFFC)
 
 // mask value for low 2 bits of u64 value
@@ -34,9 +34,9 @@ const p = [u64(0xFFFFFFFFFFFFFFFB), u64(0xFFFFFFFFFFFFFFFF), u64(0x0000000000000
 // Poly1305 instance
 struct Poly1305 {
 mut:
-	// Poly1305 instance accepts 32 bytes of key input.
-	// This key is partitioned into two's 128 bit parts, r and s
-	// where r is clamped before stored.
+	// Poly1305 instance accepts 32 bytes (256 bits) of key input.
+	// This key is partitioned into two's 128 bits parts, r and s
+	// where r is clamped before stored and the s part is kept secret.
 	r unsigned.Uint128
 	s unsigned.Uint128
 	// Poly1305 arithmatic accumulator
@@ -55,12 +55,12 @@ fn new(key []u8) !&Poly1305 {
 		return error('poly1305: bad key length')
 	}
 	// Read the r part of the key and clamp it. Clamping was done by clearing
-	// some bits of r before being used. The spec says the bits that are required
-	// to be clamped are: from 16 bytes of r, some odd index bytes, i.e., r[3],
+	// some bits of r before being used. The spec says the bits from 16 bytes of r,
+	// that are required to be clamped are: some odd index bytes, i.e., r[3],
 	// r[7], r[11], and r[15], are required to have their top four bits clear
 	// (be smaller than 16), and some even index bytes, i.e., r[4], r[8], and r[12],
 	// are required to have their bottom two bits clear (be divisible by 4),
-	// totally clearing 22 bits. In 128-bit little endian form, the clamping
+	// totally clearing 22 bits. In 128-bit little-endian format, the clamping
 	// mask value is 0x0ffffffc0ffffffc0ffffffc0fffffff.
 	// See the rmask0 and rmask1 constants above.
 	r := unsigned.Uint128{
@@ -81,9 +81,25 @@ fn new(key []u8) !&Poly1305 {
 	return ctx
 }
 
-fn mac(mut out [tag_size]u8, msg []u8, key []u8) {}
+fn mac(mut out []u8, msg []u8, key []u8) ! {
+	if out.len != poly1305.tag_size {
+		return error('bad out tag_size')
+	}
+	mut po := new(key)!
+	mut m := msg.clone()
+	po.update_block(mut m)
+	po.finish(mut out)
+	// zeroise context
+}
 
-fn verify(mac [tag_size]u8, msg []u8, key []u8) {}
+fn verify(tag []u8, msg []u8, key []u8) bool {
+	mut po := new(key) or { panic(err) }
+	mut out := []u8{len: poly1305.tag_size}
+	mut m := msg.clone()
+	po.update_block(mut m)
+	po.finish(mut out)
+	return subtle.constant_time_compare(tag, out) == 1
+}
 
 fn (mut po Poly1305) finish(mut out []u8) {
 	if po.leftover > 0 {
@@ -92,24 +108,34 @@ fn (mut po Poly1305) finish(mut out []u8) {
 	finalize(mut out, mut po.h, po.s)
 }
 
-fn (mut po Poly1305) update(mut p []u8) {
+// update updates internal of Poly1305 state by message. Internally, it clones the message
+// and supplies it to the update_block method. See the `update_block` method for details.
+fn (mut po Poly1305) update(msg []u8) {
+	mut m := msg.clone()
+	po.update_block(mut m)
+}
+
+// update_block updates the internals of Poly105 state by block of message. As a note,
+// it accepts mutable message data for performance reasons by avoiding message
+// clones and working on message slices directly.
+fn (mut po Poly1305) update_block(mut msg []u8) {
 	if po.leftover > 0 {
-		n := copy(mut po.buffer[po.leftover..], p)
+		n := copy(mut po.buffer[po.leftover..], msg)
 		if po.leftover + n < poly1305.block_size {
 			po.leftover += n
 			return
 		}
-		p = unsafe { p[n..] }
+		msg = unsafe { msg[n..] }
 		po.leftover = 0
 		update_generic(mut po, mut po.buffer)
 	}
-	nn := p.len - p.len % poly1305.tag_size
+	nn := msg.len - msg.len % poly1305.tag_size
 	if nn > 0 {
-		update_generic(mut po, mut p[..nn])
-		p = unsafe { p[nn..] }
+		update_generic(mut po, mut msg[..nn])
+		msg = unsafe { msg[nn..] }
 	}
-	if p.len > 0 {
-		po.leftover += copy(mut po.buffer[po.leftover..], p)
+	if msg.len > 0 {
+		po.leftover += copy(mut po.buffer[po.leftover..], msg)
 	}
 }
 
@@ -231,13 +257,13 @@ fn mul_h_by_r(mut t [4]u64, mut h [3]u64, r unsigned.Uint128) {
 	// For h[2], it has been checked above; even though its value has to be at most 7 
 	// (for marking h has been overflowing 130 bits), the product of h2 and r0/r1
 	// would not go to overflow 64 bits (exactly, a maximum of 63 bits). 
-	// Its likes in the go comment did, we can ignore that high part of the product,
+	// Its likes in the go version; we can ignore that high part of the product,
 	// ie, h2r0.hi and h2r1.hi is equal to zero, but we elevate check for this.
 	h2r0 := u128_mul(h[2], r.lo)
 	h2r1 := u128_mul(h[2], r.hi)
 
 	// In properly clamped r, product of h*r would not exceed 128 bits because r0 and r1
-	// are clamped with rmask0 and rmask1 above. Its addition does not overflow 128 bit either.
+	// are clamped with rmask0 and rmask1 above. Its addition also does not exceed 128 bits either.
 	// So, in other words, it should be c0 = c1 = c2 = 0.
 	m0 := h0r0
 	m1, c0 := unsigned.add_128(h1r0, h0r1, 0)
@@ -267,7 +293,7 @@ fn mul_h_by_r(mut t [4]u64, mut h [3]u64, r unsigned.Uint128) {
 }
 
 // squeeze reduces accumulator h by doing partial reduction module p
-// where t is result of previous h*r from mul_h_by_r
+// where t is result of previous h*r from mul_h_by_r calls.
 fn squeeze(mut h [3]u64, t [4]u64) {
 	// we follow the go version, by splitting from previous result in `t`
 	// at the 2¹³⁰ mark into h and cc, the carry.
