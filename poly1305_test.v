@@ -18,6 +18,7 @@ fn test_poly1305_core_vector_tests() ! {
 		// poly.sum(mut tag)
 		// poly1305.input(msg) // this could should lead to panic, becaus `.result()` setup done to true
 		// check tag same with expected_tag
+		dump('i=${i}, ${c.key}')
 		assert tag == expected_tag
 		// verify the tag has right result
 		// assert verify(tag, msg, key) == true
