@@ -49,7 +49,7 @@ mut:
 }
 
 
-// new creates new Poly1305 from 32 bytes of key provided.
+// new creates a new Poly1305 instance from 32 bytes of key provided.
 @[direct_array_access]
 fn new(key []u8) !&Poly1305 {
 	if key.len != poly1305.key_size {
