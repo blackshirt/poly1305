@@ -21,6 +21,7 @@ const tag_size = 16
 // mask value for clamping r part, ie, 0x0ffffffc0ffffffc0ffffffc0fffffff
 const rmask0 = u64(0x0FFFFFFC0FFFFFFF) // clears 10 bits
 
+// for high 64 bits of r
 const rmask1 = u64(0x0FFFFFFC0FFFFFFC) // clears 12 bits
 
 // mask value for low 2 bits of u64 value
@@ -70,11 +71,11 @@ fn new(key []u8) !&Poly1305 {
 }
 
 fn (mut ctx Poly1305) sum(mut out []u8) {
-	mut p := ctx
-	if p.offset > 0 {
-		update_generic(mut p, mut p.buffer[..p.offset])
+	mut po := ctx
+	if po.offset > 0 {
+		update_generic(mut po, mut po.buffer[..po.offset])
 	}
-	finalize(mut out, mut ctx.h, p.s)
+	finalize(mut out, mut po.h, po.s)
 }
 
 fn (mut ctx Poly1305) write(buf []u8) !int {
@@ -192,30 +193,26 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 		//      	t4     	t3     	t2     	t1     	t0
 		//  --------------------------------------------
 		// individual 128 bits product
-		h0r0 := u128_mul(h0, r0)
-		h1r0 := u128_mul(h1, r0)
-		h0r1 := u128_mul(h0, r1)
-		h1r1 := u128_mul(h1, r1)
+		h0r0 := mul_64(h0, r0)
+		h1r0 := mul_64(h1, r0)
+		h0r1 := mul_64(h0, r1)
+		h1r1 := mul_64(h1, r1)
 
 		// For h2, it has been checked above; even though its value has to be at most 7 
 		// (for marking h has been overflowing 130 bits), the product of h2 and r0/r1
 		// would not go to overflow 64 bits (exactly, a maximum of 63 bits). 
 		// Its likes in the go comment did, we can ignore that high part of the product,
 		// ie, h2r0.hi and h2r1.hi is equal to zero, but we elevate check for this.
-		h2r0 := u128_mul(h2, r0)
-		h2r1 := u128_mul(h2, r1)
+		h2r0 := mul_64(h2, r0)
+		h2r1 := mul_64(h2, r1)
 
 		// In properly clamped r, product of h*r would not exceed 128 bits because r0 and r1 of r
 		// are masked with rmask0 and rmask1 above. Its addition of unsigned.Uint128 result
 		// does not overflow 128 bit either. So, in other words, it should be c0 = c1 = c2 = 0.
 		m0 := h0r0
-		m1, c0 := unsigned.add_128(h1r0, h0r1, 0)
-		m2, c1 := unsigned.add_128(h2r0, h1r1, c0)
-		m3, c2 := h2r1.overflowing_add_64(c1)
-		// for sake of clarity, we check c2 carry
-		if c2 != 0 {
-			panic('poly1305: overflow')
-		}
+		m1 := add_128(h1r0, h0r1)
+		m2 := add_128(h2r0, h1r1)
+		m3 := h2r1
 
 		// Because the h2r1.hi part is a zero, the m3 product only depends on h2r1.lo.
 		// This also means m3.hi is zero for a similar reason. Furthermore,
@@ -224,13 +221,7 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 		mut t1, mut t2, mut t3 := u64(0), u64(0), u64(0)
 		t1, c = bits.add_64(m0.hi, m1.lo, 0)
 		t2, c = bits.add_64(m1.hi, m2.lo, c)
-		t3, c = bits.add_64(m2.hi, m3.lo, c)
-		if c != 0 {
-			panic('poly1305: overflow')
-		}
-
-		// we return this 4 64-bit limbs
-		//
+		t3, _ = bits.add_64(m2.hi, m3.lo, c)
 
 		// squeeze
 		h0, h1, h2 = t0, t1, t2 & poly1305.mask_low2bits // 130 bit of h
@@ -293,18 +284,18 @@ fn mul_h_by_r(mut h Acc, r unsigned.Uint128) [4]u64 {
 	//      	t4     	t3     	t2     	t1     	t0
 	//  --------------------------------------------
 	// individual 128 bits product
-	h0r0 := u128_mul(h[0], r0)
-	h1r0 := u128_mul(h[1], r0)
-	h0r1 := u128_mul(h[0], r1)
-	h1r1 := u128_mul(h[1], r1)
+	h0r0 := mul_64(h[0], r0)
+	h1r0 := mul_64(h[1], r0)
+	h0r1 := mul_64(h[0], r1)
+	h1r1 := mul_64(h[1], r1)
 
 	// For h[2], it has been checked above; even though its value has to be at most 7 
 	// (for marking h has been overflowing 130 bits), the product of h2 and r0/r1
 	// would not go to overflow 64 bits (exactly, a maximum of 63 bits). 
 	// Its likes in the go comment did, we can ignore that high part of the product,
 	// ie, h2r0.hi and h2r1.hi is equal to zero, but we elevate check for this.
-	h2r0 := u128_mul(h[2], r0)
-	h2r1 := u128_mul(h[2], r1)
+	h2r0 := mul_64(h[2], r0)
+	h2r1 := mul_64(h[2], r1)
 
 	// In properly clamped r, product of h*r would not exceed 128 bits because r0 and r1 of r
 	// are masked with rmask0 and rmask1 above. Its addition of unsigned.Uint128 result
@@ -399,4 +390,18 @@ fn shift_right_by2(mut a unsigned.Uint128) unsigned.Uint128 {
 	a.lo = a.lo >> 2 | (a.hi & 3) << 62
 	a.hi = a.hi >> 2
 	return a
+}
+
+fn mul_64(a u64, b u64) unsigned.Uint128 {
+	hi, lo := bits.mul_u64(a, b)
+	return unsigned.Uint128{lo, hi}
+}
+
+fn add_128(a unsigned.Uint128, b unsigned.Uint128) unsigned.Uint128 {
+	lo, c0 := bits.add_64(a.lo, b.lo, 0)
+	hi, c1 := bits.add_64(a.hi, b.hi, c0)
+	if c1 != 0 {
+		panic('poly1305: unexpected overflow')
+	}
+	return unsigned.Uint128{lo, hi}
 }
