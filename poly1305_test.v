@@ -12,9 +12,10 @@ fn test_poly1305_core_vector_tests() ! {
 
 		mut tag := []u8{len: tag_size}
 
-		mut poly := new(key)!
-		poly.update(mut msg)
-		poly.sum(mut tag)
+		mut ctx := new(key)!
+		update_generic(mut ctx, mut msg)
+		finalize(mut tag, mut ctx.h, ctx.s)
+		// poly.sum(mut tag)
 		// poly1305.input(msg) // this could should lead to panic, becaus `.result()` setup done to true
 		// check tag same with expected_tag
 		assert tag == expected_tag

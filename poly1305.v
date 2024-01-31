@@ -70,10 +70,11 @@ fn new(key []u8) !&Poly1305 {
 }
 
 fn (mut ctx Poly1305) sum(mut out []u8) {
-	if ctx.offset > 0 {
-		update_generic(mut ctx, mut ctx.buffer[..ctx.offset])
+	mut p := ctx
+	if p.offset > 0 {
+		update_generic(mut p, mut p.buffer[..p.offset])
 	}
-	finalize(mut out, mut ctx.h, ctx.s)
+	finalize(mut out, mut ctx.h, p.s)
 }
 
 fn (mut ctx Poly1305) write(buf []u8) !int {
@@ -83,7 +84,7 @@ fn (mut ctx Poly1305) write(buf []u8) !int {
 fn (mut ctx Poly1305) update(mut p []u8) {
 	if ctx.offset > 0 {
 		n := copy(mut ctx.buffer[ctx.offset..], p)
-		if ctx.offset + n < poly1305.tag_size {
+		if ctx.offset + n < poly1305.block_size {
 			ctx.offset += n
 			return
 		}
@@ -116,11 +117,25 @@ fn clamp_r(mut r unsigned.Uint128) {
 
 // we follow the go version
 fn update_generic(mut ctx Poly1305, mut msg []u8) {
+	// for correctness and clarity, we check whether r is properly clamped.
+	// ie, r is masked by 0x0ffffffc0ffffffc0ffffffc0fffffff
+	if ctx.r.lo & u64(0xf0000003f0000000) != 0 {
+		panic('bad r.lo')
+	}
+	if ctx.r.hi & u64(0xf0000003f0000003) != 0 {
+		panic('bad r.hi')
+	}
+
 	// localize the thing
 	mut h0 := ctx.h[0]
 	mut h1 := ctx.h[1]
 	mut h2 := ctx.h[2]
-	r := ctx.r
+	r0 := ctx.r.lo
+	r1 := ctx.r.hi
+	// We need h to be in correctly reduced form to make sure h is not overflowing.
+	if h2 & poly1305.mask_high62bits != 0 {
+		panic('poly1305: h need to be reduced')
+	}
 	for msg.len > 0 {
 		// carry
 		mut c := u64(0)
@@ -129,7 +144,7 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 			// load 16 bytes msg
 			mlo := binary.little_endian_u32(msg[0..8])
 			mhi := binary.little_endian_u32(msg[8..16])
-			m := unsigned.uint128_new(mlo, mhi)
+			// m := unsigned.uint128_new(mlo, mhi)
 
 			// We add 128 bit msg with 64 bit from related accumulator
 			// just use Uint128.overflowing_add_64(v u64) (Uint128, u64)
@@ -152,7 +167,7 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 			// Add this number to the accumulator, ie, h += m
 			mo := binary.little_endian_u64(buf[0..8])
 			mi := binary.little_endian_u64(buf[8..16])
-			m := unsigned.uint128_new(mo, mi)
+			// m := unsigned.uint128_new(mo, mi)
 
 			h0, c = bits.add_64(h0, mo, 0)
 			h1, c = bits.add_64(h1, mi, c)
@@ -160,18 +175,80 @@ fn update_generic(mut ctx Poly1305, mut msg []u8) {
 			// drains the msg, we have reached the last block
 			msg = []u8{}
 		}
-		mut acc := Acc([h0, h1, h2]!)
-		t := mul_h_by_r(mut acc, r)
-		
-		x := squeeze(t)
-		h0 = x[0]
-		h1 = x[1]
-		h2 = x[2]
-		
+		// multiply h by r
+
+		// multiplication of h and r, ie, h*r
+		// 							h2		h1		h0
+		//									r1 		r0
+		//	---------------------------------------------x
+		//		           			h2r0	h1r0	h0r0 	// individual 128 bit product
+		//         			h2r1	h1r1   	h0r1
+		//  ---------------------------------------------
+		//         			m3     	m2     	m1   	m0
+		//   --------------------------------------------
+		//   		m3.hi  	m2.hi   m1.hi  	m0.hi
+		//             	   	m3.lo   m2.lo  	m1.lo   m0.lo
+		//  ---------------------------------------------
+		//      	t4     	t3     	t2     	t1     	t0
+		//  --------------------------------------------
+		// individual 128 bits product
+		h0r0 := u128_mul(h0, r0)
+		h1r0 := u128_mul(h1, r0)
+		h0r1 := u128_mul(h0, r1)
+		h1r1 := u128_mul(h1, r1)
+
+		// For h2, it has been checked above; even though its value has to be at most 7 
+		// (for marking h has been overflowing 130 bits), the product of h2 and r0/r1
+		// would not go to overflow 64 bits (exactly, a maximum of 63 bits). 
+		// Its likes in the go comment did, we can ignore that high part of the product,
+		// ie, h2r0.hi and h2r1.hi is equal to zero, but we elevate check for this.
+		h2r0 := u128_mul(h2, r0)
+		h2r1 := u128_mul(h2, r1)
+
+		// In properly clamped r, product of h*r would not exceed 128 bits because r0 and r1 of r
+		// are masked with rmask0 and rmask1 above. Its addition of unsigned.Uint128 result
+		// does not overflow 128 bit either. So, in other words, it should be c0 = c1 = c2 = 0.
+		m0 := h0r0
+		m1, c0 := unsigned.add_128(h1r0, h0r1, 0)
+		m2, c1 := unsigned.add_128(h2r0, h1r1, c0)
+		m3, c2 := h2r1.overflowing_add_64(c1)
+		// for sake of clarity, we check c2 carry
+		if c2 != 0 {
+			panic('poly1305: overflow')
+		}
+
+		// Because the h2r1.hi part is a zero, the m3 product only depends on h2r1.lo.
+		// This also means m3.hi is zero for a similar reason. Furthermore,
+		// it tells us if the product doesn't have a fifth limb (t4), so we can ignore it.
+		t0 := m0.lo
+		mut t1, mut t2, mut t3 := u64(0), u64(0), u64(0)
+		t1, c = bits.add_64(m0.hi, m1.lo, 0)
+		t2, c = bits.add_64(m1.hi, m2.lo, c)
+		t3, c = bits.add_64(m2.hi, m3.lo, c)
+		if c != 0 {
+			panic('poly1305: overflow')
+		}
+
+		// we return this 4 64-bit limbs
+		//
+
+		// squeeze
+		h0, h1, h2 = t0, t1, t2 & poly1305.mask_low2bits // 130 bit of h
+		mut cc := unsigned.uint128_new(t2 & poly1305.mask_high62bits, t3)
+
+		h0, c = bits.add_64(h0, cc.lo, 0)
+		h1, c = bits.add_64(h1, cc.hi, c)
+		h2 += c
+
+		cc = shift_right_by2(mut cc)
+
+		h0, c = bits.add_64(h0, cc.lo, 0)
+		h1, c = bits.add_64(h1, cc.hi, c)
+		h2 += c
 	}
-	ctx.h[0] = h0 
-	ctx.h[1] = h1 
-	ctx.h[2] = h2 
+	ctx.h[0] = h0
+	ctx.h[1] = h1
+	ctx.h[2] = h2
 }
 
 // The poly1305 arithmatic accumulator. Basically, it is the same as
@@ -287,13 +364,15 @@ fn finalize(mut out []u8, mut h Acc, s unsigned.Uint128) {
 	mut h2 := h[2]
 	// compute t = h - p = h - (2¹³⁰ - 5), and select h as the result if the
 	// subtraction underflows, and t otherwise.
-	t0, b0 := bits.sub_64(h0, poly1305.p[0], 0)
-	t1, b1 := bits.sub_64(h1, poly1305.p[1], b0)
-	_, b2 := bits.sub_64(h2, poly1305.p[2], b1)
+	mut b := u64(0)
+	mut t0, mut t1, mut t2 := u64(0), u64(0), u64(0)
+	t0, b = bits.sub_64(h0, poly1305.p[0], 0)
+	t1, b = bits.sub_64(h1, poly1305.p[1], b)
+	t2, b = bits.sub_64(h2, poly1305.p[2], b)
 
 	// h = h if h < p else h - p
-	h0 = select_64(b2, h0, t0)
-	h1 = select_64(b2, h1, t1)
+	h0 = select_64(b, h0, t0)
+	h1 = select_64(b, h1, t1)
 
 	// Finally, we compute tag = h + s  mod  2¹²⁸
 	// s is 128 bit of ctx.s, ie, Uint128
