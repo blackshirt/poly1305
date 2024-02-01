@@ -1,7 +1,21 @@
 module poly1305
 
+import rand
 import encoding.hex
 
+fn test_poly1305_with_smoked_messages_are_working_normally() ! {
+	key := rand.bytes(32)!
+	// generates smoked message with full bits is set
+	msg := u8(0xff).repeat(35).bytes()
+	// msg = ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+	mut tag := []u8{len: tag_size}
+	create_tag(mut tag, msg, key)
+
+	// lets verify its working normally
+	valid := verify_tag(tag, msg, key)
+	assert valid == true
+}
+	
 // This is a test case from RFC 8439 vector test data.
 // There are 12 cases provided.
 fn test_poly1305_core_vector_tests() ! {
@@ -13,11 +27,6 @@ fn test_poly1305_core_vector_tests() ! {
 		expected_tag := hex.decode(c.tag) or { panic(err.msg()) }
 
 		mut tag := []u8{len: tag_size}
-
-		mut p1 := new(key)!
-		update_generic(mut p1, mut msg)
-		finalize(mut tag, mut p1.h, p1.s)
-		assert tag == expected_tag
 
 		// check for instance based method
 		mut p2 := new(key)!
@@ -31,7 +40,7 @@ fn test_poly1305_core_vector_tests() ! {
 
 		mut tag2 := []u8{len: tag_size}
 		create_tag(mut tag2, msg3, key)!
-		assert tag2[..] == expected_tag
+		assert tag2 == expected_tag
 		assert verify_tag(tag2, msg3, key) == true
 	}
 }
@@ -51,29 +60,29 @@ fn test_poly1305_function_based_core_functionality() ! {
 	}
 }
 
-/*
+
 // its comes from golang poly1305 vector test, except minus with changed internal state test
 fn test_smoked_data_vectors() ! {
 	for i, c in testdata {
-		mut key := hex.decode(c.key) or { panic(err.msg()) }
-		mut msg := hex.decode(c.msg) or { panic(err.msg()) }
-		expected_tag := hex.decode(c.tag) or { panic(err.msg()) }
+		mut key := hex.decode(c.key) !
+		mut msg := hex.decode(c.msg) !
+		expected_tag := hex.decode(c.tag) !
 
 		mut poly := new(key)!
 		mut tag := []u8{len: tag_size}
 
-		poly.update_block(mut msg)
-		poly.sum(mut tag)
+		poly.update(msg)
+		poly.finish(mut tag)
 
 		assert tag == expected_tag
 	
-		mut res := verify(tag, msg, key)
+		mut res := verify_tag(tag, msg, key)
 		assert res == true
 
 		// If the key is zero, the tag will always be zero, independent of the input.
 		if msg.len > 0 && key.len != 32 {
 			msg[0] ^= 0xff
-			res = verify(tag, msg, key)
+			res = verify_tag(tag, msg, key)
 			assert res == false
 			msg[0] ^= 0xff
 		}
@@ -81,18 +90,18 @@ fn test_smoked_data_vectors() ! {
 		// If the input is empty, the tag only depends on the second half of the key.
 		if msg.len > 0 {
 			key[0] ^= 0xff
-			res = verify(tag, msg, key)
+			res = verify_tag(tag, msg, key)
 			assert res == false
 			key[0] ^= 0xff
 		}
 		tag[0] ^= 0xff
-		res = verify(tag, msg, key)
+		res = verify_tag(tag, msg, key)
 		assert res == false
 		tag[0] ^= 0xff
 		
 	}
 }
-*/
+
 struct RFCTestCases {
 	key string
 	msg string
