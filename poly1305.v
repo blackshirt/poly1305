@@ -101,9 +101,9 @@ fn (mut po Poly1305) reset() {
 
 // reinit reinitializes Poly1305 instance by resetting internal fields, and
 // then reinit instance with the new key.
-pub fn (mut po Poly1305) reinit(key []u8) ! {
+pub fn (mut po Poly1305) reinit(key []u8) {
 	if key.len != poly1305.key_size {
-		return error('bad key size')
+		panic('bad key size')
 	}
 	// first, we reset the instance and than setup its again
 	po.reset()
@@ -160,6 +160,14 @@ pub fn (mut po Poly1305) finish(mut out []u8) {
 	finalize(mut out, mut po.h, po.s)
 	// we reset instance to make its in bad unusable state.
 	po.reset()
+}
+
+// verify does verify mac code is a valid and authenticated for message msg.
+pub fn (mut po Poly1305) verify(mac []u8, msg []u8) bool {
+	mut out := []u8{len: poly1305.tag_size}
+	po.update(msg)
+	po.finish(mut out)
+	return subtle.constant_time_compare(mac, out) == 1
 }
 
 // update updates internal of Poly1305 state by message. Internally, it clones the message

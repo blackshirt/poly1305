@@ -36,7 +36,7 @@ fn test_poly1305_core_vector_tests() ! {
 	}
 }
 
-fn test_poly1305_core_function_based_vector_tests() ! {
+fn test_poly1305_function_based_core_functionality() ! {
 	for i, c in poly1305.basic_poly_cases {
 		mut key := hex.decode(c.key) or { panic(err.msg()) }
 		mut msg := hex.decode(c.msg) or { panic(err.msg()) }
@@ -48,7 +48,6 @@ fn test_poly1305_core_function_based_vector_tests() ! {
 		update_generic(mut po, mut msg)
 		finalize(mut tag, mut po.h, po.s)
 		assert tag == expected_tag
-		po.reset()
 	}
 }
 
