@@ -217,7 +217,8 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 		panic('poly1305: bad r.hi')
 	}
 	// We need the accumulator to be in correctly reduced form to make sure it is not overflowing.
-	if po.h[2] & poly1305.mask_high62bits != 0 {
+	// mask with upper 61 bits (for > 130 bits) value
+	if po.h[2] & u64(0xfffffffffffffff8) != 0 {
 		panic('poly1305: h need to be reduced')
 	}
 	// localize the thing

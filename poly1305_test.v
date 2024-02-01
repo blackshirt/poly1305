@@ -9,13 +9,13 @@ fn test_poly1305_with_smoked_messages_are_working_normally() ! {
 	msg := u8(0xff).repeat(35).bytes()
 	// msg = ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 	mut tag := []u8{len: tag_size}
-	create_tag(mut tag, msg, key)
+	create_tag(mut tag, msg, key)!
 
 	// lets verify its working normally
 	valid := verify_tag(tag, msg, key)
 	assert valid == true
 }
-	
+
 // This is a test case from RFC 8439 vector test data.
 // There are 12 cases provided.
 fn test_poly1305_core_vector_tests() ! {
@@ -60,13 +60,12 @@ fn test_poly1305_function_based_core_functionality() ! {
 	}
 }
 
-
 // its comes from golang poly1305 vector test, except minus with changed internal state test
 fn test_smoked_data_vectors() ! {
 	for i, c in testdata {
-		mut key := hex.decode(c.key) !
-		mut msg := hex.decode(c.msg) !
-		expected_tag := hex.decode(c.tag) !
+		mut key := hex.decode(c.key)!
+		mut msg := hex.decode(c.msg)!
+		expected_tag := hex.decode(c.tag)!
 
 		mut poly := new(key)!
 		mut tag := []u8{len: tag_size}
@@ -75,7 +74,7 @@ fn test_smoked_data_vectors() ! {
 		poly.finish(mut tag)
 
 		assert tag == expected_tag
-	
+
 		mut res := verify_tag(tag, msg, key)
 		assert res == true
 
@@ -98,7 +97,6 @@ fn test_smoked_data_vectors() ! {
 		res = verify_tag(tag, msg, key)
 		assert res == false
 		tag[0] ^= 0xff
-		
 	}
 }
 
