@@ -101,7 +101,7 @@ fn (mut po Poly1305) reset() {
 
 // reinit reinitializes Poly1305 instance by resetting internal fields, and 
 // then reinit instance with the new key.
-fn (mut po Poly1305) reinit(key []u8) ! {
+pub fn (mut po Poly1305) reinit(key []u8) ! {
 	if key.len != key_size {
 		return error("bad key size")
 	}
@@ -147,6 +147,9 @@ pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
 	return subtle.constant_time_compare(tag, out) == 1
 }
 
+// Finish finalizes the message authentication code computation and stores the result in out.
+// After calls this method, don't use the instance anymore to do most anything, but, 
+// you should reinitialize the instance with the new key with reinit method.
 pub fn (mut po Poly1305) finish(mut out []u8) {
 	if po.done {
 		panic("poly1305: has done, please reinit with the new key")
