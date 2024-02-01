@@ -24,17 +24,17 @@ const rmask1 = u64(0x0FFFFFFC0FFFFFFC)
 
 // mask value for low 2 bits of u64 value
 const mask_low2bits = u64(0x0000000000000003)
-// mask value for high 62 bit of u64 value, u64(0xfffffffffffffffc)
+// mask value for high 62 bits of u64 value, u64(0xfffffffffffffffc)
 const mask_high62bits = u64(0xfffffffffffffffc)
 
 // p is 130 bit of Poly1305 constant prime, ie 2^130-5
 // as defined in rfc, p = 3fffffffffffffffffffffffffffffffb
 const p = [u64(0xFFFFFFFFFFFFFFFB), u64(0xFFFFFFFFFFFFFFFF), u64(0x0000000000000003)]
 
-// Poly1305 instance
+// Poly1305 mac instance
 struct Poly1305 {
 mut:
-	// Poly1305 instance accepts 32 bytes (256 bits) of key input.
+	// Poly1305 mac accepts 32 bytes (256 bits) of key input.
 	// This key is partitioned into two's 128 bits parts, r and s
 	// where r is clamped before stored and the s part is kept secret.
 	r unsigned.Uint128
@@ -81,7 +81,44 @@ fn new(key []u8) !&Poly1305 {
 	return ctx
 }
 
-fn mac(mut out []u8, msg []u8, key []u8) ! {
+// reset zeroises Poly1305 context and makes it in unusable state.
+// You should reinit the instance with the new key instead to make its usable again.
+fn (mut po Poly1305) reset() {
+	po.r = unsigned.uint128_zero
+	po.s = unsigned.uint128_zero
+	po h[0] = 0
+	po.h[1] = 0
+	po.h[2] = 0
+	po.leftover = 0
+	unsafe {
+		po.buffer.reset()
+	}
+	// we set done to true, to prevent accidental calls 
+	// to update/finish on instance.
+	po.done = true
+}
+
+// reinit reinitializes Poly1305 instance by resetting internal fields, and 
+// then init with the new key.
+fn (mut po Poly1305) reinit(key []u8) ! {
+	if key.len != key_size {
+		return error("bad key size")
+	}
+	// first, we reset the context and than setup its
+	po.reset()
+	po.r = unsigned.Uint128{
+		lo: binary.little_endian_u64(key[0..8]) & poly1305.rmask0
+		hi: binary.little_endian_u64(key[8..16]) & poly1305.rmask1
+	}
+	po.s = unsigned.Uint128{
+		lo: binary.little_endian_u64(key[16..24])
+		hi: binary.little_endian_u64(key[24..32])
+	}
+	// we set po.done to false, to make its usable again.
+	po.done = false
+}
+		
+pub fn create_mac(mut out []u8, msg []u8, key []u8) ! {
 	if out.len != poly1305.tag_size {
 		return error('bad out tag_size')
 	}
@@ -89,10 +126,11 @@ fn mac(mut out []u8, msg []u8, key []u8) ! {
 	mut m := msg.clone()
 	po.update_block(mut m)
 	po.finish(mut out)
-	// zeroise context
+	// zeroise Poly1305 context
+	po.reset()
 }
 
-fn verify(tag []u8, msg []u8, key []u8) bool {
+pub fn verify(tag []u8, msg []u8, key []u8) bool {
 	mut po := new(key) or { panic(err) }
 	mut out := []u8{len: poly1305.tag_size}
 	mut m := msg.clone()
@@ -101,7 +139,7 @@ fn verify(tag []u8, msg []u8, key []u8) bool {
 	return subtle.constant_time_compare(tag, out) == 1
 }
 
-fn (mut po Poly1305) finish(mut out []u8) {
+pub fn (mut po Poly1305) finish(mut out []u8) {
 	if po.leftover > 0 {
 		update_generic(mut po, mut po.buffer[..po.leftover])
 	}
@@ -110,7 +148,7 @@ fn (mut po Poly1305) finish(mut out []u8) {
 
 // update updates internal of Poly1305 state by message. Internally, it clones the message
 // and supplies it to the update_block method. See the `update_block` method for details.
-fn (mut po Poly1305) update(msg []u8) {
+pub fn (mut po Poly1305) update(msg []u8) {
 	mut m := msg.clone()
 	po.update_block(mut m)
 }
@@ -118,7 +156,7 @@ fn (mut po Poly1305) update(msg []u8) {
 // update_block updates the internals of Poly105 state by block of message. As a note,
 // it accepts mutable message data for performance reasons by avoiding message
 // clones and working on message slices directly.
-fn (mut po Poly1305) update_block(mut msg []u8) {
+pub fn (mut po Poly1305) update_block(mut msg []u8) {
 	if po.leftover > 0 {
 		n := copy(mut po.buffer[po.leftover..], msg)
 		if po.leftover + n < poly1305.block_size {
