@@ -87,23 +87,23 @@ pub fn new(key []u8) !&Poly1305 {
 fn (mut po Poly1305) reset() {
 	po.r = unsigned.uint128_zero
 	po.s = unsigned.uint128_zero
-	po h[0] = 0
+	po.h[0] = 0
 	po.h[1] = 0
 	po.h[2] = 0
 	po.leftover = 0
 	unsafe {
 		po.buffer.reset()
 	}
-	// We set the done flag to true to prevent accidental calls 
+	// We set the done flag to true to prevent accidental calls
 	// to update or finish methods on the instance.
 	po.done = true
 }
 
-// reinit reinitializes Poly1305 instance by resetting internal fields, and 
+// reinit reinitializes Poly1305 instance by resetting internal fields, and
 // then reinit instance with the new key.
 pub fn (mut po Poly1305) reinit(key []u8) ! {
-	if key.len != key_size {
-		return error("bad key size")
+	if key.len != poly1305.key_size {
+		return error('bad key size')
 	}
 	// first, we reset the instance and than setup its again
 	po.reset()
@@ -120,8 +120,8 @@ pub fn (mut po Poly1305) reinit(key []u8) ! {
 }
 
 // create_tag creates 16 byte one-time message authenticator code (mac) stored inside out.
-// Its accepts message bytes to be authenticated and the 32 bytes of the key. 
-// This is one shot function to create a tag and reset internal state after the call. 
+// Its accepts message bytes to be authenticated and the 32 bytes of the key.
+// This is one shot function to create a tag and reset internal state after the call.
 // For incremental updates, use the method based on Poly1305 instance.
 pub fn create_tag(mut out []u8, msg []u8, key []u8) ! {
 	if out.len != poly1305.tag_size {
@@ -135,7 +135,7 @@ pub fn create_tag(mut out []u8, msg []u8, key []u8) ! {
 	po.reset()
 }
 
-// verify_tag verifies the message authentication code in the tag from the message msg 
+// verify_tag verifies the message authentication code in the tag from the message msg
 // compared to the mac from the calculated results with input message and key.
 // Its return true if two mac is matching, and false otherwise.
 pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
@@ -148,11 +148,11 @@ pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
 }
 
 // Finish finalizes the message authentication code computation and stores the result in out.
-// After calls this method, don't use the instance anymore to do most anything, but, 
+// After calls this method, don't use the instance anymore to do most anything, but,
 // you should reinitialize the instance with the new key with reinit method.
 pub fn (mut po Poly1305) finish(mut out []u8) {
 	if po.done {
-		panic("poly1305: has done, please reinit with the new key")
+		panic('poly1305: has done, please reinit with the new key')
 	}
 	if po.leftover > 0 {
 		update_generic(mut po, mut po.buffer[..po.leftover])
@@ -173,8 +173,11 @@ pub fn (mut po Poly1305) update(msg []u8) {
 // it accepts mutable message data for performance reasons by avoiding message
 // clones and working on message slices directly.
 pub fn (mut po Poly1305) update_block(mut msg []u8) {
+	if msg.len == 0 {
+		return
+	}
 	if po.done {
-		panic("poly1305: has done, please reinit with the new key")
+		panic('poly1305: has done, please reinit with the new key')
 	}
 	if po.leftover > 0 {
 		n := copy(mut po.buffer[po.leftover..], msg)

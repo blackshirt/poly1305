@@ -27,12 +27,28 @@ fn test_poly1305_core_vector_tests() ! {
 		// check tag same with expected_tag
 		assert tag == expected_tag
 		// verify the tag has right result
-		assert verify(tag, msg3, key) == true
+		assert verify_tag(tag, msg3, key) == true
 
 		mut tag2 := []u8{len: tag_size}
 		create_tag(mut tag2, msg3, key)!
-		assert tag2 == expected_tag
+		assert tag2[..] == expected_tag
 		assert verify_tag(tag2, msg3, key) == true
+	}
+}
+
+fn test_poly1305_core_function_based_vector_tests() ! {
+	for i, c in poly1305.basic_poly_cases {
+		mut key := hex.decode(c.key) or { panic(err.msg()) }
+		mut msg := hex.decode(c.msg) or { panic(err.msg()) }
+
+		expected_tag := hex.decode(c.tag) or { panic(err.msg()) }
+		mut tag := []u8{len: tag_size}
+
+		mut po := new(key)!
+		update_generic(mut po, mut msg)
+		finalize(mut tag, mut po.h, po.s)
+		assert tag == expected_tag
+		po.reset()
 	}
 }
 
