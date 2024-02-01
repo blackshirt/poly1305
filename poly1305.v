@@ -44,13 +44,14 @@ mut:
 	// buffer
 	buffer   []u8 = []u8{len: poly1305.block_size}
 	leftover int
-	// flag thats tells should not be used
+	// The done flag thats tells the instance should not be used again.
+	// Its set to true after calling finish or reset on instance.
 	done bool
 }
 
 // new creates a new Poly1305 instance from 32 bytes of key provided.
 @[direct_array_access]
-fn new(key []u8) !&Poly1305 {
+pub fn new(key []u8) !&Poly1305 {
 	if key.len != poly1305.key_size {
 		return error('poly1305: bad key length')
 	}
@@ -140,10 +141,15 @@ pub fn verify(tag []u8, msg []u8, key []u8) bool {
 }
 
 pub fn (mut po Poly1305) finish(mut out []u8) {
+	if po.done {
+		panic("poly1305: has done, please reinit with the new key")
+	}
 	if po.leftover > 0 {
 		update_generic(mut po, mut po.buffer[..po.leftover])
 	}
 	finalize(mut out, mut po.h, po.s)
+	// we reset instance to make its in bad unusable state.
+	po.reset()
 }
 
 // update updates internal of Poly1305 state by message. Internally, it clones the message
@@ -157,6 +163,9 @@ pub fn (mut po Poly1305) update(msg []u8) {
 // it accepts mutable message data for performance reasons by avoiding message
 // clones and working on message slices directly.
 pub fn (mut po Poly1305) update_block(mut msg []u8) {
+	if po.done {
+		panic("poly1305: has done, please reinit with the new key")
+	}
 	if po.leftover > 0 {
 		n := copy(mut po.buffer[po.leftover..], msg)
 		if po.leftover + n < poly1305.block_size {
