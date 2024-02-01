@@ -416,3 +416,42 @@ fn u128_add(x unsigned.Uint128, y unsigned.Uint128) unsigned.Uint128 {
 	}
 	return v
 }
+
+// Custom poly1305 accumulator, represented in 136 bits of Acc structure.
+// bits more space friendly than [3]u64
+struct Acc {
+	// low 128 bits part
+	lo unsigned.Uint128
+	hi u8
+}	
+
+fn add_acc_by_u128(a Acc, b unsigned.Uint128) Acc {
+	lo, c := unsigned.add_128(a.lo, b, 0)
+	if a.hi & 0xff == 0xff && c != 0 {
+		// likely its would overflow
+		panic("likely its would overflow")
+	}
+	mut hi := a.hi
+	hi += c & 0xff
+	ac := Acc{
+			lo: lo
+			hi: hi
+	}
+	return ac
+}
+
+fn add_acc_by_u64(a Acc, b u64) Acc {
+	x, c := a.lo.overflowing_add_u64(b)
+	if a.hi & 0xff == 0xff && c != 0 {
+		// likely its would overflow
+		panic("likely its would overflow")
+	}
+	mut hi := a.hi
+	hi += c & 0xff
+	ac := Acc{
+			lo: lo
+			hi: hi
+	}
+	return ac
+}
+		
