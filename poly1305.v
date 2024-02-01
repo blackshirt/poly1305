@@ -2,7 +2,7 @@
 // Use of this source code is governed by an MIT license
 // that can be found in the LICENSE file.
 //
-// Poly1305 one time message authentication code (MAC)
+// Poly1305 one-time message authentication code (MAC) module
 module poly1305
 
 import math
@@ -44,8 +44,8 @@ mut:
 	// buffer
 	buffer   []u8 = []u8{len: poly1305.block_size}
 	leftover int
-	// The done flag thats tells the instance should not be used again.
-	// Its set to true after calling finish or reset on instance.
+	// The done flag tells us if the instance should not be used again.
+	// It's set to true after calling finish or reset on the instance.
 	done bool
 }
 
@@ -82,8 +82,8 @@ pub fn new(key []u8) !&Poly1305 {
 	return ctx
 }
 
-// reset zeroises Poly1305 context and makes it in unusable state.
-// You should reinit the instance with the new key instead to make its usable again.
+// reset zeroizes the Poly1305 instance and makes it in an unusable state.
+// You should reinit the instance with the new key instead to make it usable again.
 fn (mut po Poly1305) reset() {
 	po.r = unsigned.uint128_zero
 	po.s = unsigned.uint128_zero
@@ -94,18 +94,18 @@ fn (mut po Poly1305) reset() {
 	unsafe {
 		po.buffer.reset()
 	}
-	// we set done to true, to prevent accidental calls 
-	// to update/finish on instance.
+	// We set the done flag to true to prevent accidental calls 
+	// to update or finish methods on the instance.
 	po.done = true
 }
 
 // reinit reinitializes Poly1305 instance by resetting internal fields, and 
-// then init with the new key.
+// then init instance with the new key.
 fn (mut po Poly1305) reinit(key []u8) ! {
 	if key.len != key_size {
 		return error("bad key size")
 	}
-	// first, we reset the context and than setup its
+	// first, we reset the instance and than setup its again
 	po.reset()
 	po.r = unsigned.Uint128{
 		lo: binary.little_endian_u64(key[0..8]) & poly1305.rmask0
@@ -118,7 +118,9 @@ fn (mut po Poly1305) reinit(key []u8) ! {
 	// we set po.done to false, to make its usable again.
 	po.done = false
 }
-		
+
+// create_mac creates 16 bytes one-time message authenticator code (mac) in out.
+// Its accepts message msg and the key bytes. Internally
 pub fn create_mac(mut out []u8, msg []u8, key []u8) ! {
 	if out.len != poly1305.tag_size {
 		return error('bad out tag_size')
