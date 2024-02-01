@@ -100,7 +100,7 @@ fn (mut po Poly1305) reset() {
 }
 
 // reinit reinitializes Poly1305 instance by resetting internal fields, and 
-// then init instance with the new key.
+// then reinit instance with the new key.
 fn (mut po Poly1305) reinit(key []u8) ! {
 	if key.len != key_size {
 		return error("bad key size")
@@ -119,9 +119,11 @@ fn (mut po Poly1305) reinit(key []u8) ! {
 	po.done = false
 }
 
-// create_mac creates 16 bytes one-time message authenticator code (mac) in out.
-// Its accepts message msg and the key bytes. Internally
-pub fn create_mac(mut out []u8, msg []u8, key []u8) ! {
+// create_tag creates 16 byte one-time message authenticator code (mac) stored inside out.
+// Its accepts message bytes to be authenticated and the 32 bytes of the key. 
+// This is one shot function to create a tag and reset internal state after the call. 
+// For incremental updates, use the method based on Poly1305 instance.
+pub fn create_tag(mut out []u8, msg []u8, key []u8) ! {
 	if out.len != poly1305.tag_size {
 		return error('bad out tag_size')
 	}
@@ -129,11 +131,14 @@ pub fn create_mac(mut out []u8, msg []u8, key []u8) ! {
 	mut m := msg.clone()
 	po.update_block(mut m)
 	po.finish(mut out)
-	// zeroise Poly1305 context
+	// zeroise Poly1305 fields
 	po.reset()
 }
 
-pub fn verify(tag []u8, msg []u8, key []u8) bool {
+// verify_tag verifies the message authentication code in the tag from the message msg 
+// compared to the mac from the calculated results with input message and key.
+// Its return true if two mac is matching, and false otherwise.
+pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
 	mut po := new(key) or { panic(err) }
 	mut out := []u8{len: poly1305.tag_size}
 	mut m := msg.clone()
