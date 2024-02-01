@@ -30,9 +30,9 @@ fn test_poly1305_core_vector_tests() ! {
 		assert verify(tag, msg3, key) == true
 
 		mut tag2 := []u8{len: tag_size}
-		mac(mut tag2, msg3, key)!
+		create_tag(mut tag2, msg3, key)!
 		assert tag2 == expected_tag
-		assert verify(tag2, msg3, key) == true
+		assert verify_tag(tag2, msg3, key) == true
 	}
 }
 
