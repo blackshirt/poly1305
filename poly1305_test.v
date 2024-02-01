@@ -6,7 +6,7 @@ import encoding.hex
 fn test_poly1305_with_smoked_messages_are_working_normally() ! {
 	key := rand.bytes(32)!
 	// generates smoked message with full bits is set
-	msg := u8(0xff).repeat(35).bytes()
+	msg := u8(0xff).repeat(135).bytes()
 	// msg = ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 	mut tag := []u8{len: tag_size}
 	create_tag(mut tag, msg, key)!
