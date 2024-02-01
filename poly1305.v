@@ -27,40 +27,41 @@ mut:
 	h [5]u32
 
 	leftover int
-	buffer   []u8
+	buffer   []u8 = []u8{len: block_size}
 
 	done bool
 }
 
-// new_tag generates poly1305's tag authenticator for msg using a one-time key and
+// create_tag generates poly1305's tag authenticator for msg using a one-time key and
 // return the 16-byte result. The key must be unique for each message, authenticating two
 // different messages with the same key allows an attacker to forge messages at will.
-pub fn new_tag(msg []u8, key []u8) []u8 {
-	mut p := new_poly1305(key) or { panic(err.msg()) }
-	p.input(msg)
-	tag := p.result()
-	return tag
+pub fn create_tag(mut tag []u8, msg []u8, key []u8) {
+	if msg.len == 0 { return }
+	// bound check elimination
+	_ := tag[15]
+	mut p := new(key) or { panic(err.msg()) }
+	p.update(msg)
+	p.finish(mut tag)
 }
 
-// verify verifies mac is a valid authenticator for msg with the given key.
+// verify_tag verifies mac is a valid authenticator for msg with the given key.
 // its return true when mac is valid, and false otherwise.
-pub fn verify(mac []u8, msg []u8, key []u8) bool {
-	mut p := new_poly1305(key) or { panic(err.msg()) }
-	p.input(msg)
-	tag := p.result()
+pub fn verify_tag(mac []u8, msg []u8, key []u8) bool {
+	mut p := new(key) or { panic(err.msg()) }
+	p.update(msg)
+	mut tag := []u8{len: tag_size }
+	p.finish(mut tag)
 	return subtle.constant_time_compare(mac, tag) == 1
 }
 
-// new_poly1305 create new Poly1305 MAC instances and initializes it with the given key.
+// new creates new Poly1305 MAC instances and initializes it with the given key.
 // Poly1305 MAC cannot be used like common hash, because using a poly1305 key twice breaks its security.
 // Therefore feeding data to input to a running MAC after calling result causes it to panic.
-pub fn new_poly1305(key []u8) !Poly1305 {
+pub fn new(key []u8) !&Poly1305 {
 	if key.len != poly1305.key_size {
 		return error('wrong key size provided')
 	}
-	mut p := Poly1305{
-		buffer: []u8{len: poly1305.block_size}
-	}
+	mut p := &Poly1305{}
 	// load the keys to two parts `r` and `s` and doing clamping
 	// with r &= 0xffffffc0ffffffc0ffffffc0fffffff
 	p.r[0] = (binary.little_endian_u32(key[0..4])) & 0x3ffffff
@@ -77,14 +78,18 @@ pub fn new_poly1305(key []u8) !Poly1305 {
 	return p
 }
 
-// input feeds data into the Poly1305 internal state, its panic when
+// update updates state by feeding data to Poly1305 instance.
+pub fn (mut p Poly1305) update(data []u8) {
+	mut msg := data.clone()
+	p.update_block(mut msg)
+}
+		
+// update_block feeds data into the Poly1305 internal state, its panic when
 // called after calling result.
-pub fn (mut p Poly1305) input(data []u8) {
+pub fn (mut p Poly1305) update_block(mut m []u8) {
 	if p.done {
 		panic(error('poly1305: feed input after result has been done'))
 	}
-	mut m := data.clone()
-
 	if p.leftover > 0 {
 		want := math.min(16 - p.leftover, m.len)
 		mm := unsafe { m[..want] }
@@ -124,7 +129,7 @@ pub fn (mut p Poly1305) input(data []u8) {
 //  This is primarily useful for implementing ChaCHa20 family authenticated
 //  encryption constructions.
 pub fn (mut p Poly1305) input_padded(data []u8) {
-	p.input(data)
+	p.update(data)
 
 	// Pad associated data with `\0` if it's unaligned with the block size
 	unaligned_len := data.len % poly1305.block_size
@@ -132,19 +137,20 @@ pub fn (mut p Poly1305) input_padded(data []u8) {
 	if unaligned_len != 0 {
 		pad := []u8{len: poly1305.block_size}
 		pad_len := poly1305.block_size - unaligned_len
-		p.input(pad[..pad_len])
+		p.update(pad[..pad_len])
 	}
 }
 
 // chained_input process input messages in a chained manner
-pub fn (mut p Poly1305) chained_input(data []u8) Poly1305 {
-	p.input(data)
-	return p
+pub fn (mut p Poly1305) chained_input(data []u8) {
+	p.update(data)
 }
 
 // result calculates and output tag bytes with len `tag_size`
 // and then `zeroize` all Poly1305's internal state.
-pub fn (mut p Poly1305) result() []u8 {
+pub fn (mut p Poly1305) finish(mut out []u8) {
+	// bound check hint
+	_ := out[15]
 	if p.leftover > 0 {
 		p.buffer[p.leftover] = u8(0x01)
 
@@ -239,18 +245,15 @@ pub fn (mut p Poly1305) result() []u8 {
 	f = u64(h3) + u64(p.s[3]) + (f >> 32)
 	h3 = u32(f) // f as u32
 
-	mut tag := []u8{len: poly1305.tag_size}
-	binary.little_endian_put_u32(mut tag[0..4], h0)
-	binary.little_endian_put_u32(mut tag[4..8], h1)
-	binary.little_endian_put_u32(mut tag[8..12], h2)
-	binary.little_endian_put_u32(mut tag[12..16], h3)
+	binary.little_endian_put_u32(mut out[0..4], h0)
+	binary.little_endian_put_u32(mut out[4..8], h1)
+	binary.little_endian_put_u32(mut out[8..12], h2)
+	binary.little_endian_put_u32(mut out[12..16], h3)
 
 	// its tell the mac has been done, and prevent data to be feeded to input call.
 	p.done = true
 	// zeroize all internal state	
 	p.zeroize()
-
-	return tag
 }
 
 // process_the_block computes a single block of Poly1305 using the internal buffer
