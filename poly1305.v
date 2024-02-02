@@ -442,12 +442,10 @@ fn add_acc_by_u128(a Acc, b unsigned.Uint128) Acc {
 
 fn add_acc_by_u64(a Acc, b u64) Acc {
 	x, c := a.lo.overflowing_add_u64(b)
-	if a.hi & 0xff == 0xff && c != 0 {
-		// likely its would overflow
+	hi, c0 := bits.add_u64(u64(a.hi), c)
+	if c0 != 0 {
 		panic("likely its would overflow")
 	}
-	mut hi := a.hi
-	hi += c & 0xff
 	ac := Acc{
 			lo: lo
 			hi: hi
