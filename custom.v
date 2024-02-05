@@ -10,6 +10,23 @@ struct Uint192 {
 	hi u64
 }
 	
+// add_with_carry returns u+v with carry
+fn (u Uint192) add_with_carry(v Uint192, c u64) (Uint192, u64) {
+	lo, c0 := bits.add_64(u.lo, v.lo, c)
+	mi, c1 := bits.add_64(u.mi, v.mi, c0)
+	hi, c2 := bits.add_64(u.hi, v.hi, c1)
+	x := Uint192{lo, mi, hi}
+	return x, c2
+}
+	
+fn (u Uint192) add_64(v u64) (Uint192, u64) {
+	lo, c0 := bits.add_64(u.lo, v, 0)
+	mi, c1 := bits.add_64(u.mi, 0, c0)
+	hi, c2 := bits.add_64(u.hi, 0, c1)
+	x := Uint192{lo, mi, hi}
+	return x, c2
+}
+	
 // We define several required functionality on this custom allocator.
 //
 // mul_64_checked returns u*v even the result size is over > 192 bit.
@@ -46,13 +63,19 @@ fn (u Uint192) mul_64_checked(v u64) (Uint192, u64) {
 	}
 	return x, t3
 }
-
-fn (u Acc) mul_128_checked(v unsigned.Uint128) (Acc, unsigned.Uint128) {
-	// 		u.hi	u.lo
-	//				  v
-	// ------------------x
-	//		 m1		 m0
-	// -------------------
+		
+// mul_128_checked returns u*v even the result is over > 192 bits.
+// Its stores the remaining high bits of the reault in Uint128 structure.
+fn (u Uint192) mul_128_checked(v unsigned.Uint128) (Uint192, unsigned.Uint128) {
+	// 		        u.hi	    u.mi         u.lo
+	//				            v.hi         v.lo     
+	// --------------------------------------------x
+	//              uhi*vlo      umi*vlo     ulo*vlo
+	//   uhi*vhu    umi*vhi      ulo*vhi
+	// ----------------------------------------------
+	//		  m3         m2          m1           m0       // Uint128
+	// 
+	// -----------------------------------------------
 	//	m1.hi		m0.hi
 	//				m1.lo	m0.lo
 	// -------------------------- +
