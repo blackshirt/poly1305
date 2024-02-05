@@ -9,13 +9,13 @@ type Acc = unsigned.Uint256
 // mul_64 returns u*v even the result size is over > 256 bit
 // its acts like Uint128.overflowing_mul_64 but return value instead of boolean.
 fn (u Acc) mul_64_checked(v u64) (Acc, u64) {
-	// u.hi.hi	u.hi.lo	u.lo.hi	u.lo.lo
-	//								  v
+	//           u.hi	      u.lo
+	//							v
 	// --------------------------------- x
-	// 		m3		m2		m1		m0 					// 128 bit product
-	// ---------------------------------
-	// 	 m3.hi	  m2.hi		m1.hi	m0.hi
-	//			  m3.lo		m2.lo	m1.lo	m0.lo
+	// 				m1			m0 					// 128 bit product
+	// -----------------------------------
+	// 	 m3.hi	  m2.hi			
+	//			  m3.lo				m0.lo
 	// ------------------------------------------- +
 	//	  t4	  t3		 t2		 t1		  t0
 	m0 := u128_mul(u.lo.lo, v)
