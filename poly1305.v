@@ -40,7 +40,7 @@ mut:
 	r unsigned.Uint128
 	s unsigned.Uint128
 	// Poly1305 arithmatic accumulator
-	h [3]u64
+	h Uint192
 	// buffer
 	buffer   []u8 = []u8{len: poly1305.block_size}
 	leftover int
@@ -87,9 +87,7 @@ pub fn new(key []u8) !&Poly1305 {
 fn (mut po Poly1305) reset() {
 	po.r = unsigned.uint128_zero
 	po.s = unsigned.uint128_zero
-	po.h[0] = 0
-	po.h[1] = 0
-	po.h[2] = 0
+	po.h = uint192_zero
 	po.leftover = 0
 	unsafe {
 		po.buffer.reset()
@@ -218,11 +216,11 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 	}
 	// We need the accumulator to be in correctly reduced form to make sure it is not overflowing.
 	// mask with upper 61 bits (for > 130 bits) value
-	if po.h[2] & u64(0xfffffffffffffff8) != 0 {
+	if po.h.hi & u64(0xfffffffffffffff8) != 0 {
 		panic('poly1305: h need to be reduced')
 	}
 	// localize the thing
-	mut h := [po.h[0], po.h[1], po.h[2]]!
+	mut h := po.h
 	mut t := [4]u64{}
 	for msg.len > 0 {
 		// carry
@@ -234,13 +232,13 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 			mi := binary.little_endian_u64(msg[8..16])
 
 			// add msg block to accumulator, h += m
-			h[0], c = bits.add_64(h[0], mo, 0)
-			h[1], c = bits.add_64(h[1], mi, c)
+			h.lo, c = bits.add_64(h.lo, mo, 0)
+			h.mi, c = bits.add_64(h.mi, mi, c)
 			// The rfc requires us to set a bit just above the message size, ie,
 			// add one bit beyond the number of octets.  For a 16-byte block,
 			// this is equivalent to adding 2^128 to the number.
 			// so we can just add 1 to the high part of accumulator
-			h[2] += c + 1
+			h.hi += c + 1
 
 			// updates msg slice
 			msg = unsafe { msg[poly1305.block_size..] }
@@ -255,9 +253,9 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 			mo := binary.little_endian_u64(buf[0..8])
 			mi := binary.little_endian_u64(buf[8..16])
 
-			h[0], c = bits.add_64(h[0], mo, 0)
-			h[1], c = bits.add_64(h[1], mi, c)
-			h[2] += c
+			h.lo, c = bits.add_64(h.lo, mo, 0)
+			h.mi, c = bits.add_64(h.mi, mi, c)
+			h.hi += c
 			// drains the msg, we have reached the last block
 			msg = []u8{}
 		}
@@ -266,18 +264,18 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 		squeeze(mut h, t)
 	}
 	// updates accumulator
-	po.h[0] = h[0]
-	po.h[1] = h[1]
-	po.h[2] = h[2]
+	po.h.lo = h.lo
+	po.h.mi = h.mi
+	po.h.hi = h.hi
 }
 
 // finalize does final reduction of accumulator h, adds it with secret s,
 // and then take 128 bit of h stored in out.
-fn finalize(mut out []u8, mut h [3]u64, s unsigned.Uint128) {
+fn finalize(mut out []u8, mut h Uint192, s unsigned.Uint128) {
 	assert out.len == poly1305.tag_size
-	mut h0 := h[0]
-	mut h1 := h[1]
-	mut h2 := h[2]
+	mut h0 := h.lo
+	mut h1 := h.mi
+	mut h2 := h.hi
 	// compute t = h - p = h - (2¹³⁰ - 5), and select h as the result if the
 	// subtraction underflows, and t otherwise.
 	mut b := u64(0)
@@ -307,7 +305,7 @@ fn mul_h_by_r(mut t [4]u64, mut h Uint192, r unsigned.Uint128) {
 	// see custom.v for more detail.
 	// Let's multiply h by r, h *= r, we stores the result on raw 320 bits of xh and hb
 	xh, hb := h.mul_128_checked(r)
-	
+
 	// For h[2], it has been checked above; even though its value has to be at most 7 
 	// (for marking h has been overflowing 130 bits), the product of h2 and r0/r1
 	// would not go to overflow 64 bits (exactly, a maximum of 63 bits). 
@@ -316,27 +314,27 @@ fn mul_h_by_r(mut t [4]u64, mut h Uint192, r unsigned.Uint128) {
 	// In properly clamped r, product of h*r would not exceed 128 bits because r0 and r1
 	// are clamped with rmask0 and rmask1 above. Its addition also does not exceed 128 bits either.
 	// So, in other words, it should be c0 = c1 = c2 = 0.
-	// check for high bits of the result is not overflowing 256 bits, so we can ignore 
+	// check for high bits of the result is not overflowing 256 bits, so we can ignore
 	// high bit (hb.hi) of the Uint128 part.
 	if hb.hi != 0 {
-		panic("poly1305: unexpected overflow, non-null 5th limb")
+		panic('poly1305: unexpected overflow, non-null 5th limb')
 	}
 
 	// Because the h2r1.hi part is a zero, the m3 product only depends on h2r1.lo.
 	// This also means m3.hi is zero for a similar reason. Furthermore,
 	// it tells us if the product doesn't have a fifth limb (t4), so we can ignore it.
-	
+
 	// updates 5 64-bit limbs
 	t[0] = xh.lo
 	t[1] = xh.mi
 	t[2] = xh.hi
 	t[3] = hb.lo
-	// we ignore 5th limb 
+	// we ignore 5th limb
 }
 
 // squeeze reduces accumulator h by doing partial reduction module p
 // where t is result of previous h*r from mul_h_by_r calls.
-fn squeeze(mut h Uint192, t [5]u64) {
+fn squeeze(mut h Uint192, t [4]u64) {
 	// we follow the go version, by splitting from previous result in `t`
 	// at the 2¹³⁰ mark into h and cc, the carry.
 	// begin by splitting t
@@ -355,8 +353,7 @@ fn squeeze(mut h Uint192, t [5]u64) {
 	h2 += c
 
 	// updates h
-	h[0] = h0
-	h[1] = h1
-	h[2] = h2
+	h.lo = h0
+	h.mi = h1
+	h.hi = h2
 }
-
