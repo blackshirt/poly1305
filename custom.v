@@ -3,23 +3,33 @@ module poly1305
 import math.bits
 
 // Uint192 is a custom allocators that represents 192 bits of unsigned integer.
-// Maybe this structure could supplement `math.unsigned` module, but it is another story.
 struct Uint192 {
+mut:
 	lo u64
 	mi u64
 	hi u64
 }
-	
+
+// We define several required functionality on this custom allocator.
+//	
 // add_with_carry returns u+v with carry
-fn (u Uint192) add_with_carry(v Uint192, c u64) (Uint192, u64) {
+fn (u Uint192) add_checked(v Uint192) (Uint192, u64) {
 	lo, c0 := bits.add_64(u.lo, v.lo, c)
 	mi, c1 := bits.add_64(u.mi, v.mi, c0)
 	hi, c2 := bits.add_64(u.hi, v.hi, c1)
 	x := Uint192{lo, mi, hi}
 	return x, c2
 }
-	
-fn (u Uint192) add_64(v u64) (Uint192, u64) {
+
+fn (u Uint192) add_128_checked(v unsigned.Uint128) (Uint192, u64) {
+	lo, c0 := bits.add_64(u.lo, v.lo, c)
+	mi, c1 := bits.add_64(u.mi, v.hi, c0)
+	hi, c2 := bits.add_64(u.hi, 0, c1)
+	x := Uint192{lo, mi, hi}
+	return x, c2
+}
+
+fn (u Uint192) add_64_checked(v u64) (Uint192, u64) {
 	lo, c0 := bits.add_64(u.lo, v, 0)
 	mi, c1 := bits.add_64(u.mi, 0, c0)
 	hi, c2 := bits.add_64(u.hi, 0, c1)
@@ -27,8 +37,6 @@ fn (u Uint192) add_64(v u64) (Uint192, u64) {
 	return x, c2
 }
 	
-// We define several required functionality on this custom allocator.
-//
 // mul_64_checked returns u*v even the result size is over > 192 bit.
 // It return (Uin192, u64) pair where the former stores low 192 bit and 
 // and the rest of high bit stored in the u64 part. You can check the value of u64 part
@@ -44,9 +52,9 @@ fn (u Uint192) mul_64_checked(v u64) (Uint192, u64) {
 	// ------------------------------------------- +
 	//	       t3	     t2		 t1		 t0	 
 	// 
-	m0 := u128_mul(u.lo, v)
-	m1 := u128_mul(u.mi, v)
-	m2 := u128_mul(u.hi, v)
+	m0 := u128_from_64_mul(u.lo, v)
+	m1 := u128_from_64_mul(u.mi, v)
+	m2 := u128_from_64_mul(u.hi, v)
 	// propagates carry
 	t0, c0 := bits.add_64(m0.lo, 0, 0)
 	t1, c1 := bits.add_64(m0.hi, m1.lo, c0)
@@ -71,7 +79,7 @@ fn (u Uint192) mul_128_checked(v unsigned.Uint128) (Uint192, unsigned.Uint128) {
 	//				            v.hi         v.lo     
 	// --------------------------------------------x
 	//              uhi*vlo      umi*vlo     ulo*vlo
-	//   uhi*vhu    umi*vhi      ulo*vhi
+	//   uhi*vhi    umi*vhi      ulo*vhi
 	// ----------------------------------------------
 	//		  m3         m2          m1           m0       // Uint128
 	// 
@@ -81,23 +89,62 @@ fn (u Uint192) mul_128_checked(v unsigned.Uint128) (Uint192, unsigned.Uint128) {
 	// ------------------------------------------------------ +
 	// 	   	t4			t3		 	t2			t1		t0
 	//
-	
+	ulovlo := u128_from_64_mul(u.lo, v.lo)
+	umivlo := u128_from_64_mul(u.mi, v.lo)
+	uhivlo := u128_from_64_mul(u.hi, v.lo)
 	//
-	m0 := unsigned.Uint256{
-		lo: lov0
-		hi: lov1
+	ulovhi := u128_from_64_mul(u.lo, v.hi)
+	umivhi := u128_from_64_mul(u.mi, v.hi)
+	uhivhi := u128_from_64_mul(u.hi, v.hi)
+	// 
+	m0 := ulovlo
+	m1, c1 := unsigned.add_128{umivlo, ulovhi, 0}
+	m2, c2 := unsigned.add_128(uhivlo, umivhi, c1)
+	m3, c3 := unsigned.add_128(uhivhi, 0, c2)
+	if c3 != 0 {
+		panic('Uint192: unexpected overflow')
 	}
-	m1 := unsigned.Uint256{hiv0, hiv1}
+	//
 	t0 := m0.lo
-	t1, c1 := unsigned.add_128(m0.hi, m1.lo, u64(0))
-	t2, c2 := unsigned.add_128(m1.hi, 0, c1)
-	if c2 != 0 {
-		panic('Custom Acc unexpected overflow')
+	t1, c4 := bits.add_64(m0.hi, m1.lo, 0)
+	t2, c5 := bits.add_64(m1.hi, m2.lo, c4)
+	t3, c6 := bits.add_64(m2.hi, m3.lo, c5)
+	t4, c7 := bits.add_64(m4.hi, 0, c6)
+	if c7 != 0 {
+		panic('Uint192: unexpected overflow')
 	}
 
-	x := unsigned.Uint256
-	{
-		t0, t1
+	x := Uint192{
+		lo: t0
+		mi: t1
+		hi: t2
 	}
-	return Acc(x), t2
+	hb := unsigned.Uint128{
+		lo:t3
+		hi: t4
+	}
+	return x, hb
+}
+
+
+// u128_from_64_mul creates new Uint128 from 64x64 bit product of x*y
+fn u128_from_64_mul(x u64, y u64) unsigned.Uint128 {
+	hi, lo := bits.mul_64(x, y)
+	return unsigned.uint128_new(lo, hi)
+}
+
+// constant_time_eq_64 returns 1 when x == y.
+fn constant_time_eq_64(x u64, y u64) u64 {
+	return ((x ^ y) - 1) >> 63
+}
+
+// select_64 returns x if v == 1 and y if v == 0, in constant time.
+fn select_64(v u64, x u64, y u64) u64 {
+	return ~(v - 1) & x | (v - 1) & y
+}
+
+fn shift_right_by2(mut a unsigned.Uint128) unsigned.Uint128 {
+	a.lo = a.lo >> 2 | (a.hi & 3) << 62
+	a.hi = a.hi >> 2
+	return a
 }

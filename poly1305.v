@@ -318,18 +318,18 @@ fn mul_h_by_r(mut t [4]u64, mut h [3]u64, r unsigned.Uint128) {
 	//      	t4     	t3     	t2     	t1     	t0
 	//  --------------------------------------------
 	// individual 128 bits product
-	h0r0 := u128_mul(h[0], r.lo)
-	h1r0 := u128_mul(h[1], r.lo)
-	h0r1 := u128_mul(h[0], r.hi)
-	h1r1 := u128_mul(h[1], r.hi)
+	h0r0 := u128_from_64_mul(h[0], r.lo)
+	h1r0 := u128_from_64_mul(h[1], r.lo)
+	h0r1 := u128_from_64_mul(h[0], r.hi)
+	h1r1 := u128_from_64_mul(h[1], r.hi)
 
 	// For h[2], it has been checked above; even though its value has to be at most 7 
 	// (for marking h has been overflowing 130 bits), the product of h2 and r0/r1
 	// would not go to overflow 64 bits (exactly, a maximum of 63 bits). 
 	// Its likes in the go version; we can ignore that high part of the product,
 	// ie, h2r0.hi and h2r1.hi is equal to zero, but we elevate check for this.
-	h2r0 := u128_mul(h[2], r.lo)
-	h2r1 := u128_mul(h[2], r.hi)
+	h2r0 := u128_from_64_mul(h[2], r.lo)
+	h2r1 := u128_from_64_mul(h[2], r.hi)
 
 	// In properly clamped r, product of h*r would not exceed 128 bits because r0 and r1
 	// are clamped with rmask0 and rmask1 above. Its addition also does not exceed 128 bits either.
@@ -387,32 +387,3 @@ fn squeeze(mut h [3]u64, t [4]u64) {
 	h[2] = h2
 }
 
-// u128_mul creates new Uint128 from 64x64 bit product of x*y
-fn u128_mul(x u64, y u64) unsigned.Uint128 {
-	hi, lo := bits.mul_64(x, y)
-	return unsigned.uint128_new(lo, hi)
-}
-
-// constant_time_eq_64 returns 1 when x == y.
-fn constant_time_eq_64(x u64, y u64) u64 {
-	return ((x ^ y) - 1) >> 63
-}
-
-// select_64 returns x if v == 1 and y if v == 0, in constant time.
-fn select_64(v u64, x u64, y u64) u64 {
-	return ~(v - 1) & x | (v - 1) & y
-}
-
-fn shift_right_by2(mut a unsigned.Uint128) unsigned.Uint128 {
-	a.lo = a.lo >> 2 | (a.hi & 3) << 62
-	a.hi = a.hi >> 2
-	return a
-}
-
-fn u128_add(x unsigned.Uint128, y unsigned.Uint128) unsigned.Uint128 {
-	v, c := unsigned.add_128(x, y, 0)
-	if c != 0 {
-		panic('poly1305: unexpected overflow')
-	}
-	return v
-}
