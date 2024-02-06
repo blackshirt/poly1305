@@ -302,23 +302,12 @@ fn finalize(mut out []u8, mut h [3]u64, s unsigned.Uint128) {
 }
 
 // mul_h_by_r multiplies accumulator h by r and stores the result in four of 64 bit limbs in t
-fn mul_h_by_r(mut t [4]u64, mut h [3]u64, r unsigned.Uint128) {
-	// multiplication of h and r, ie, h*r
-	// 							h2		h1		h0
-	//									r1 		r0
-	//	---------------------------------------------x
-	//		           			h2r0	h1r0	h0r0 	// individual 128 bit product
-	//         			h2r1	h1r1   	h0r1
-	//  ---------------------------------------------
-	//         			m3     	m2     	m1   	m0
-	//   --------------------------------------------
-	//   		m3.hi  	m2.hi   m1.hi  	m0.hi
-	//             	   	m3.lo   m2.lo  	m1.lo   m0.lo
-	//  ---------------------------------------------
-	//      	t4     	t3     	t2     	t1     	t0
-	//  --------------------------------------------
-	// individual 128 bits product
-	h0r0 := u128_from_64_mul(h[0], r.lo)
+fn mul_h_by_r(mut t [4]u64, mut h Uint192, r unsigned.Uint128) {
+	// for multiplication of accumulator by r, we use custom allocator functionality defined as Uint192.
+	// see custom.v for more detail.
+	// Let's multiply h by r, h *= r, we stores the result on 320 bits x and c
+	x, c := h.mul_128_checked(r)
+	lh0r0 := u128_from_64_mul(h[0], r.lo)
 	h1r0 := u128_from_64_mul(h[1], r.lo)
 	h0r1 := u128_from_64_mul(h[0], r.hi)
 	h1r1 := u128_from_64_mul(h[1], r.hi)
