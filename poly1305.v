@@ -227,18 +227,21 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 		mut c := u64(0)
 		// h += m
 		if msg.len >= poly1305.block_size {
-			// load 16 bytes msg
-			mo := binary.little_endian_u64(msg[0..8])
-			mi := binary.little_endian_u64(msg[8..16])
-
+			// load 16 bytes msg to 128 bits of Uint128
+			m := unsigned.Uint128{
+				lo: binary.little_endian_u64(msg[0..8])
+				hi: binary.little_endian_u64(msg[8..16])
+			}
 			// add msg block to accumulator, h += m
-			h.lo, c = bits.add_64(h.lo, mo, 0)
-			h.mi, c = bits.add_64(h.mi, mi, c)
+			h, c = h.add_128_checked(m, 0)
 			// The rfc requires us to set a bit just above the message size, ie,
 			// add one bit beyond the number of octets.  For a 16-byte block,
 			// this is equivalent to adding 2^128 to the number.
 			// so we can just add 1 to the high part of accumulator
-			h.hi += c + 1
+			h.hi, c = bits.add_64(h.hi, 1, c)
+			if c != 0 {
+				panic('something bad')
+			}
 
 			// updates msg slice
 			msg = unsafe { msg[poly1305.block_size..] }
@@ -249,13 +252,18 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 			// Add one bit beyond the number of octets
 			buf[msg.len] = u8(0x01)
 
+			// loads 16 bytes of message
+			m := unsigned.Uint128{
+				lo: binary.little_endian_u64(buf[0..8])
+				hi: binary.little_endian_u64(buf[8..16])
+			}
 			// Add this number to the accumulator, ie, h += m
-			mo := binary.little_endian_u64(buf[0..8])
-			mi := binary.little_endian_u64(buf[8..16])
+			h, c = h.add_128_checked(m, 0)
+			h.hi, c = bits.add_64(h.hi, 0, c)
+			if c != 0 {
+				panic('something bad')
+			}
 
-			h.lo, c = bits.add_64(h.lo, mo, 0)
-			h.mi, c = bits.add_64(h.mi, mi, c)
-			h.hi += c
 			// drains the msg, we have reached the last block
 			msg = []u8{}
 		}
@@ -271,32 +279,30 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 
 // finalize does final reduction of accumulator h, adds it with secret s,
 // and then take 128 bit of h stored in out.
-fn finalize(mut out []u8, mut h Uint192, s unsigned.Uint128) {
+fn finalize(mut out []u8, mut ac Uint192, s unsigned.Uint128) {
 	assert out.len == poly1305.tag_size
-	mut h0 := h.lo
-	mut h1 := h.mi
-	mut h2 := h.hi
+	mut h := ac
 	// compute t = h - p = h - (2¹³⁰ - 5), and select h as the result if the
 	// subtraction underflows, and t otherwise.
 	mut b := u64(0)
 	mut t0, mut t1, mut t2 := u64(0), u64(0), u64(0)
-	t0, b = bits.sub_64(h0, poly1305.p[0], 0)
-	t1, b = bits.sub_64(h1, poly1305.p[1], b)
-	t2, b = bits.sub_64(h2, poly1305.p[2], b)
+	t0, b = bits.sub_64(h.lo, poly1305.p[0], 0)
+	t1, b = bits.sub_64(h.mi, poly1305.p[1], b)
+	t2, b = bits.sub_64(h.hi, poly1305.p[2], b)
 
 	// h = h if h < p else h - p
-	h0 = select_64(b, h0, t0)
-	h1 = select_64(b, h1, t1)
+	h.lo = select_64(b, h.lo, t0)
+	h.mi = select_64(b, h.mi, t1)
 
 	// Finally, we compute tag = h + s  mod  2¹²⁸
 	// s is 128 bit of po.s, ie, Uint128
 	mut c := u64(0)
-	h0, c = bits.add_64(h0, s.lo, 0)
-	h1, _ = bits.add_64(h1, s.hi, c)
+	h.lo, c = bits.add_64(h.lo, s.lo, 0)
+	h.mi, _ = bits.add_64(h.mi, s.hi, c)
 
 	// take only low 128 bit of h
-	binary.little_endian_put_u64(mut out[0..8], h0)
-	binary.little_endian_put_u64(mut out[8..16], h1)
+	binary.little_endian_put_u64(mut out[0..8], h.lo)
+	binary.little_endian_put_u64(mut out[8..16], h.mi)
 }
 
 // mul_h_by_r multiplies accumulator h by r and stores the result in four of 64 bit limbs in t

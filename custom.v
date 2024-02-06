@@ -16,24 +16,25 @@ mut:
 // We define several required functionality on this custom allocator.
 //	
 // add_with_carry returns u+v with carry
-fn (u Uint192) add_checked(v Uint192) (Uint192, u64) {
-	lo, c0 := bits.add_64(u.lo, v.lo, 0)
+fn (u Uint192) add_checked(v Uint192, c u64) (Uint192, u64) {
+	lo, c0 := bits.add_64(u.lo, v.lo, c)
 	mi, c1 := bits.add_64(u.mi, v.mi, c0)
 	hi, c2 := bits.add_64(u.hi, v.hi, c1)
 	x := Uint192{lo, mi, hi}
 	return x, c2
 }
 
-fn (u Uint192) add_128_checked(v unsigned.Uint128) (Uint192, u64) {
-	lo, c0 := bits.add_64(u.lo, v.lo, 0)
+// add_with_carry returns u+v with carry
+fn (u Uint192) add_128_checked(v unsigned.Uint128, c u64) (Uint192, u64) {
+	lo, c0 := bits.add_64(u.lo, v.lo, c)
 	mi, c1 := bits.add_64(u.mi, v.hi, c0)
 	hi, c2 := bits.add_64(u.hi, 0, c1)
 	x := Uint192{lo, mi, hi}
 	return x, c2
 }
 
-fn (u Uint192) add_64_checked(v u64) (Uint192, u64) {
-	lo, c0 := bits.add_64(u.lo, v, 0)
+fn (u Uint192) add_64_checked(v u64, c u64) (Uint192, u64) {
+	lo, c0 := bits.add_64(u.lo, v, c)
 	mi, c1 := bits.add_64(u.mi, 0, c0)
 	hi, c2 := bits.add_64(u.hi, 0, c1)
 	x := Uint192{lo, mi, hi}
@@ -130,11 +131,6 @@ fn (u Uint192) mul_128_checked(v unsigned.Uint128) (Uint192, unsigned.Uint128) {
 fn u128_from_64_mul(x u64, y u64) unsigned.Uint128 {
 	hi, lo := bits.mul_64(x, y)
 	return unsigned.uint128_new(lo, hi)
-}
-
-// constant_time_eq_64 returns 1 when x == y.
-fn constant_time_eq_64(x u64, y u64) u64 {
-	return ((x ^ y) - 1) >> 63
 }
 
 // select_64 returns x if v == 1 and y if v == 0, in constant time.
