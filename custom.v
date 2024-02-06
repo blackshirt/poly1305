@@ -54,7 +54,7 @@ fn (u Uint192) mul_64_checked(v u64) (Uint192, u64) {
 	t3, c3 := bits.add_64(m2.hi, 0, c2)
 	// something bad happen if the last c3 is non null
 	if c3 != 0 {
-		panic('Custom Acc overflow')
+		panic('Uint192: unexpected overflow')
 	}
 	x := Uint192{
 		lo: t0
@@ -76,13 +76,12 @@ fn (u Uint192) mul_128_checked(v unsigned.Uint128) (Uint192, unsigned.Uint128) {
 	//		  m3         m2          m1           m0       // Uint128
 	// 
 	// -----------------------------------------------
-	//	m1.hi		m0.hi
-	//				m1.lo	m0.lo
-	// -------------------------- +
-	// 	   t2		t1		 t0
+	//		m3.hi		m2.hi		m1.hi		m0.hi
+	//					m3.lo		m2.lo		m1.lo	m0.lo
+	// ------------------------------------------------------ +
+	// 	   	t4			t3		 	t2			t1		t0
 	//
-	lov1, lov0 := unsigned.mul_128(u.lo, v)
-	hiv1, hiv0 := unsigned.mul_128(u.hi, v)
+	
 	//
 	m0 := unsigned.Uint256{
 		lo: lov0
