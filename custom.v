@@ -48,7 +48,7 @@ fn (u Uint192) add_64_checked(v u64, c u64) (Uint192, u64) {
 // mul_64_checked returns u*v even the result size is over > 192 bit.
 // It return (Uin192, u64) pair where the former stores low 192 bit and
 // and the rest of high bit stored in the u64 part. You can check the value of u64 part
-// for v != 0, its mean, the product of u*v is overflowing 192 bits.
+// for c != 0, its mean, the product of u*v is overflowing 192 bits.
 fn (u Uint192) mul_64_checked(v u64) (Uint192, u64) {
 	//         u.hi	  u.mi   u.lo
 	//							v
