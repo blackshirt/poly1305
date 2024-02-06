@@ -208,11 +208,8 @@ pub fn (mut po Poly1305) update_block(mut msg []u8) {
 // update_generic updates internal state of Poly1305 instance with message msg.
 fn update_generic(mut po Poly1305, mut msg []u8) {
 	// For correctness and clarity, we check whether r is properly clamped.
-	if po.r.lo & u64(0xf0000003f0000000) != 0 {
-		panic('poly1305: bad r.lo')
-	}
-	if po.r.hi & u64(0xf0000003f0000003) != 0 {
-		panic('poly1305: bad r.hi')
+	if po.r.lo & u64(0xf0000003f0000000) != 0 && po.r.hi & u64(0xf0000003f0000003) != 0 {
+		panic('poly1305: bad unclamped of r')
 	}
 	// We need the accumulator to be in correctly reduced form to make sure it is not overflowing.
 	// mask with upper 61 bits (for > 130 bits) value
@@ -227,7 +224,7 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 		mut c := u64(0)
 		// h += m
 		if msg.len >= poly1305.block_size {
-			// load 16 bytes msg to 128 bits of Uint128
+			// load 16 bytes msg to the 128 bits of Uint128 
 			m := unsigned.Uint128{
 				lo: binary.little_endian_u64(msg[0..8])
 				hi: binary.little_endian_u64(msg[8..16])
@@ -237,7 +234,7 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 			// The rfc requires us to set a bit just above the message size, ie,
 			// add one bit beyond the number of octets.  For a 16-byte block,
 			// this is equivalent to adding 2^128 to the number.
-			// so we can just add 1 to the high part of accumulator
+			// so we can just add 1 to the high part of accumulator (h.hi += 1)
 			h.hi, c = bits.add_64(h.hi, 1, c)
 			if c != 0 {
 				panic('something bad')
@@ -310,6 +307,7 @@ fn mul_h_by_r(mut t [4]u64, mut h Uint192, r unsigned.Uint128) {
 	// for multiplication of accumulator by r, we use custom allocator functionality defined as Uint192.
 	// see custom.v for more detail.
 	// Let's multiply h by r, h *= r, we stores the result on raw 320 bits of xh and hb
+	// see mul_128_checked on custom.v for detail of logic used.
 	xh, hb := h.mul_128_checked(r)
 
 	// For h[2], it has been checked above; even though its value has to be at most 7 
