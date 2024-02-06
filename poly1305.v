@@ -229,10 +229,9 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 	for msg.len > 0 {
 		// carry
 		mut c := u64(0)
-		// h += m
 		if msg.len >= poly1305.block_size {
 			// Read the 16 bytes msg block as a little-endian number
-			// and stored to the 128 bits of Uint128
+			// and stored into the 128 bits of Uint128
 			m := unsigned.Uint128{
 				lo: binary.little_endian_u64(msg[0..8])
 				hi: binary.little_endian_u64(msg[8..16])
@@ -255,7 +254,7 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 			// pad it with zeros to align with block_size.
 			mut buf := []u8{len: poly1305.block_size}
 			subtle.constant_time_copy(1, mut buf[..msg.len], msg)
-			// Add one bit beyond the number of octets
+			// set a bit above msg size.
 			buf[msg.len] = u8(0x01)
 
 			// loads 16 bytes of message
@@ -311,9 +310,7 @@ fn finalize(mut out []u8, mut ac Uint192, s unsigned.Uint128) {
 
 // mul_h_by_r multiplies accumulator h by r and stores the result in four of 64 bit limbs in t
 fn mul_h_by_r(mut t [4]u64, mut h Uint192, r unsigned.Uint128) {
-	// for multiplication of accumulator by r, we use custom allocator functionality defined as Uint192.
-	// see custom.v for more detail.
-	// Let's multiply h by r, h *= r, we stores the result on raw 320 bits of xh and hb
+	// Let's multiply h by r, h *= r, we stores the result into raw 320 bits of xh and hb
 	// see mul_128_checked on custom.v for detail of logic used.
 	xh, hb := h.mul_128_checked(r)
 
