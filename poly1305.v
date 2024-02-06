@@ -205,7 +205,7 @@ pub fn (mut po Poly1305) update_block(mut msg []u8) {
 	}
 }
 
-// update_generic updates internal state of Poly1305 instance with message msg.
+// update_generic updates internal state of Poly1305 instance with blocks of msg.
 fn update_generic(mut po Poly1305, mut msg []u8) {
 	// For correctness and clarity, we check whether r is properly clamped.
 	if po.r.lo & u64(0xf0000003f0000000) != 0 && po.r.hi & u64(0xf0000003f0000003) != 0 {
@@ -219,12 +219,20 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 	// localize the thing
 	mut h := po.h
 	mut t := [4]u64{}
+	
+	// The main routine for updating internal poly1305 state with blocks of messages was done with step:
+	// - chop messages into 16-byte blocks and read block as little-endian number;
+	// - add one bit beyond the number (its dependz on the size of the block);
+	// - add this number to the accumulator and then multiply the accumulator by "r".
+	// - perform partial reduction modulo p on the result by calling squeeze function.
+	// - updates poly1305 accumulator with the new values 
 	for msg.len > 0 {
 		// carry
 		mut c := u64(0)
 		// h += m
 		if msg.len >= poly1305.block_size {
-			// load 16 bytes msg to the 128 bits of Uint128
+			// Read the 16 bytes msg block as a little-endian number
+			// and stored to the 128 bits of Uint128
 			m := unsigned.Uint128{
 				lo: binary.little_endian_u64(msg[0..8])
 				hi: binary.little_endian_u64(msg[8..16])
@@ -243,7 +251,8 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 			// updates msg slice
 			msg = unsafe { msg[poly1305.block_size..] }
 		} else {
-			// If the msg block is not 16 bytes long (the last block), pad it with zeros.
+			// The last one msg block might be shorter than 16 bytes long,
+			// pad it with zeros to align with block_size.
 			mut buf := []u8{len: poly1305.block_size}
 			subtle.constant_time_copy(1, mut buf[..msg.len], msg)
 			// Add one bit beyond the number of octets
@@ -268,10 +277,8 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 		mul_h_by_r(mut t, mut h, po.r)
 		squeeze(mut h, t)
 	}
-	// updates accumulator
-	po.h.lo = h.lo
-	po.h.mi = h.mi
-	po.h.hi = h.hi
+	// updates internal accumulator
+	po.h = h
 }
 
 // finalize does final reduction of accumulator h, adds it with secret s,
