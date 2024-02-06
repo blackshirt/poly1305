@@ -224,7 +224,7 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 		mut c := u64(0)
 		// h += m
 		if msg.len >= poly1305.block_size {
-			// load 16 bytes msg to the 128 bits of Uint128 
+			// load 16 bytes msg to the 128 bits of Uint128
 			m := unsigned.Uint128{
 				lo: binary.little_endian_u64(msg[0..8])
 				hi: binary.little_endian_u64(msg[8..16])
