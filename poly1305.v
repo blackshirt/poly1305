@@ -305,54 +305,38 @@ fn finalize(mut out []u8, mut h [3]u64, s unsigned.Uint128) {
 fn mul_h_by_r(mut t [4]u64, mut h Uint192, r unsigned.Uint128) {
 	// for multiplication of accumulator by r, we use custom allocator functionality defined as Uint192.
 	// see custom.v for more detail.
-	// Let's multiply h by r, h *= r, we stores the result on 320 bits x and c
-	x, c := h.mul_128_checked(r)
-	lh0r0 := u128_from_64_mul(h[0], r.lo)
-	h1r0 := u128_from_64_mul(h[1], r.lo)
-	h0r1 := u128_from_64_mul(h[0], r.hi)
-	h1r1 := u128_from_64_mul(h[1], r.hi)
-
+	// Let's multiply h by r, h *= r, we stores the result on raw 320 bits of xh and hb
+	xh, hb := h.mul_128_checked(r)
+	
 	// For h[2], it has been checked above; even though its value has to be at most 7 
 	// (for marking h has been overflowing 130 bits), the product of h2 and r0/r1
 	// would not go to overflow 64 bits (exactly, a maximum of 63 bits). 
 	// Its likes in the go version; we can ignore that high part of the product,
 	// ie, h2r0.hi and h2r1.hi is equal to zero, but we elevate check for this.
-	h2r0 := u128_from_64_mul(h[2], r.lo)
-	h2r1 := u128_from_64_mul(h[2], r.hi)
-
 	// In properly clamped r, product of h*r would not exceed 128 bits because r0 and r1
 	// are clamped with rmask0 and rmask1 above. Its addition also does not exceed 128 bits either.
 	// So, in other words, it should be c0 = c1 = c2 = 0.
-	m0 := h0r0
-	m1, c0 := unsigned.add_128(h1r0, h0r1, 0)
-	m2, c1 := unsigned.add_128(h2r0, h1r1, c0)
-	m3, c2 := h2r1.overflowing_add_64(c1)
-	// check for c2 overflow
-	if c2 != 0 {
-		panic('poly1305: overflow')
+	// check for high bits of the result is not overflowing 256 bits, so we can ignore 
+	// high bit (hb.hi) of the Uint128 part.
+	if hb.hi != 0 {
+		panic("poly1305: unexpected overflow, non-null 5th limb")
 	}
 
 	// Because the h2r1.hi part is a zero, the m3 product only depends on h2r1.lo.
 	// This also means m3.hi is zero for a similar reason. Furthermore,
 	// it tells us if the product doesn't have a fifth limb (t4), so we can ignore it.
-	t0 := m0.lo
-	t1, c3 := bits.add_64(m0.hi, m1.lo, 0)
-	t2, c4 := bits.add_64(m1.hi, m2.lo, c3)
-	t3, c5 := bits.add_64(m2.hi, m3.lo, c4)
-	if c5 != 0 {
-		panic('poly1305: overflow')
-	}
-
-	// updates 4 64-bit limbs
-	t[0] = t0
-	t[1] = t1
-	t[2] = t2
-	t[3] = t3
+	
+	// updates 5 64-bit limbs
+	t[0] = xh.lo
+	t[1] = xh.mi
+	t[2] = xh.hi
+	t[3] = hb.lo
+	// we ignore 5th limb 
 }
 
 // squeeze reduces accumulator h by doing partial reduction module p
 // where t is result of previous h*r from mul_h_by_r calls.
-fn squeeze(mut h [3]u64, t [4]u64) {
+fn squeeze(mut h Uint192, t [5]u64) {
 	// we follow the go version, by splitting from previous result in `t`
 	// at the 2¹³⁰ mark into h and cc, the carry.
 	// begin by splitting t
