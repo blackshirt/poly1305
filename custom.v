@@ -5,7 +5,11 @@ import math.unsigned
 
 const uint192_zero = Uint192{}
 
-// Uint192 is a custom allocators that represents 192 bits of unsigned integer.
+// Uint192 is a structure represents 192 bits of unsigned integer.
+// It main purpose here is a custom allocator for poly1305 operates on.
+// However, it can be used to complement and expand the standard `math.unsigned`
+// module with a more complete and extensive range of handling of unsigned integers. 
+// However, that is another story.
 struct Uint192 {
 mut:
 	lo u64
@@ -15,7 +19,7 @@ mut:
 
 // We define several required functionality on this custom allocator.
 //	
-// add_with_carry returns u+v with carry
+// add_checked returns u+v with carry
 fn (u Uint192) add_checked(v Uint192, c u64) (Uint192, u64) {
 	lo, c0 := bits.add_64(u.lo, v.lo, c)
 	mi, c1 := bits.add_64(u.mi, v.mi, c0)
@@ -24,7 +28,7 @@ fn (u Uint192) add_checked(v Uint192, c u64) (Uint192, u64) {
 	return x, c2
 }
 
-// add_with_carry returns u+v with carry
+// add_128_checked returns u+v with carry
 fn (u Uint192) add_128_checked(v unsigned.Uint128, c u64) (Uint192, u64) {
 	lo, c0 := bits.add_64(u.lo, v.lo, c)
 	mi, c1 := bits.add_64(u.mi, v.hi, c0)
