@@ -345,11 +345,10 @@ fn squeeze(mut h Uint192, t [4]u64) {
 		hi: t[2] & poly1305.mask_low2bits
 	}
 	mut cc := unsigned.uint128_new(t[2] & poly1305.mask_high62bits, t[3])
-	// From golang comment (description), the carry bits are effectively shifted left by 2,
-	// in other words, cc = c * 4 for the c in the reduction identity
-	// To add c * 5 to h, we first add cc = c * 4, and then add (cc >> 2) = c.
-	// c * 2¹³⁰ + h  =  c * 5 + h  (mod  2¹³⁰ - 5)
-	
+	// reduction of general mersene prime, x = c * 2¹³⁰ + h  =  c * 5 + h  (mod  2¹³⁰ - 5)
+	// because 2¹³⁰ = 5 (mod 2¹³⁰ - 5)
+	// here, we follow the go version
+
 	mut c := u64(0)
 	ac, c = ac.add_128_checked(cc, c)
 	cc = shift_right_by2(mut cc)

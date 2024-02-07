@@ -2,6 +2,7 @@ module poly1305
 
 import rand
 import encoding.hex
+import encoding.binary
 
 fn test_poly1305_with_smoked_messages_are_working_normally() ! {
 	key := rand.bytes(32)!
@@ -61,13 +62,27 @@ fn test_poly1305_function_based_core_functionality() ! {
 }
 
 // its comes from golang poly1305 vector test, except minus with changed internal state test
-fn test_smoked_data_vectors() ! {
+fn test_poly1305_smoked_data_vectors() ! {
 	for i, c in testdata {
 		mut key := hex.decode(c.key)!
 		mut msg := hex.decode(c.msg)!
 		expected_tag := hex.decode(c.tag)!
+		mut s := Uint192{}
+		if c.state != '' {
+			// state is hex encoded in big-endian byte order
+			buf := hex.decode(c.state)!
 
+			if buf.len != 3 * 8 {
+				panic('incorrect state length')
+			}
+
+			s.lo = binary.big_endian_u64(buf[16..24])
+			s.mi = binary.big_endian_u64(buf[8..16])
+			s.hi = binary.big_endian_u64(buf[0..8])
+		}
 		mut poly := new(key)!
+		// set with accumulator s
+		poly.h = s
 		mut tag := []u8{len: tag_size}
 
 		poly.update(msg)
