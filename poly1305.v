@@ -27,7 +27,7 @@ const rmask1 = u64(0x0FFFFFFC0FFFFFFC)
 // mask value for low 2 bits of u64 value
 const mask_low2bits = u64(0x0000000000000003)
 // mask value for high 62 bits of u64 value
-const mask_high62bits = u64(0XFFFFFFFFFFFFFFFC)
+const mask_high62bits = u64(0xFFFFFFFFFFFFFFFC)
 // mask value for high 60 bits of u64 value
 const mash_high60bits = u64(0xFFFFFFFFFFFFFFF0)
 	
