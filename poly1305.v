@@ -19,12 +19,12 @@ const block_size = 16
 const key_size = 32
 // tag_size is the size of the output of the Poly1305 result, in bytes.
 const tag_size = 16
-	
+
 // mask value for clamping low 64 bits of the r part, clearing 10 bits
-const rmask0 	 = u64(0x0FFFFFFC0FFFFFFF)
+const rmask0 = u64(0x0FFFFFFC0FFFFFFF)
 const not_rmask0 = ~rmask0
 // mask value for clamping high 64 bits of the r part, clearing 12 bits
-const rmask1 	 = u64(0x0FFFFFFC0FFFFFFC)
+const rmask1 = u64(0x0FFFFFFC0FFFFFFC)
 const not_rmask1 = ~rmask1
 
 // mask value for low 2 bits of u64 value
@@ -33,7 +33,7 @@ const mask_low2bits = u64(0x0000000000000003)
 const mask_high62bits = u64(0xFFFFFFFFFFFFFFFC)
 // mask value for high 60 bits of u64 value
 const mask_high60bits = u64(0xFFFFFFFFFFFFFFF0)
-	
+
 // p is 130 bit of Poly1305 constant prime, ie 2^130-5
 // as defined in rfc, p = 3fffffffffffffffffffffffffffffffb
 const p = Uint192{
@@ -92,7 +92,6 @@ pub fn new(key []u8) !&Poly1305 {
 	}
 	return ctx
 }
-
 
 // create_tag generates 16 bytes tag, ie, one-time message authenticator code (mac) stored into out.
 // Its accepts message bytes to be authenticated and the 32 bytes of the key.
@@ -220,25 +219,25 @@ pub fn (mut po Poly1305) reinit(key []u8) {
 // update_generic updates internal state of Poly1305 mac instance with blocks of msg.
 fn update_generic(mut po Poly1305, mut msg []u8) {
 	// For correctness and clarity, we check whether r is properly clamped.
-	if po.r.lo & not_rmask0 != 0 && po.r.hi & not_rmask1 != 0 {
+	if po.r.lo & poly1305.not_rmask0 != 0 && po.r.hi & poly1305.not_rmask1 != 0 {
 		panic('poly1305: bad unclamped of r')
 	}
 	// We need the accumulator to be in correctly reduced form to make sure it is not overflowing.
-	// To be safe when used, only maximum of four low bits of the high part of the accumulator (h.hi) 
-	// can be set, and the remaining high bits must not be set. 
-	if po.h.hi & mask_high60bits != 0 {
+	// To be safe when used, only maximum of four low bits of the high part of the accumulator (h.hi)
+	// can be set, and the remaining high bits must not be set.
+	if po.h.hi & poly1305.mask_high60bits != 0 {
 		panic('poly1305: h need to be reduced')
 	}
 	// localize the thing
 	mut h := po.h
 	mut t := [4]u64{}
-	
+
 	// The main routine for updating internal poly1305 state with blocks of messages done with step:
 	// - chop messages into 16-byte blocks and read block as little-endian number;
 	// - add one bit beyond the number (its dependz on the size of the block);
 	// - add this number to the accumulator and then multiply the accumulator by "r".
 	// - perform partial reduction modulo p on the result by calling squeeze function.
-	// - updates poly1305 accumulator with the new values 
+	// - updates poly1305 accumulator with the new values
 	for msg.len > 0 {
 		// carry
 		mut c := u64(0)
@@ -294,37 +293,31 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 }
 
 // finalize does final reduction of accumulator h, adds it with secret s,
-// and then take 128 bit of h stored in out.
+// and then take 128 bit of h stored into out.
 fn finalize(mut out []u8, mut ac Uint192, s unsigned.Uint128) {
 	assert out.len == poly1305.tag_size
 	mut h := ac
 	// compute t = h - p = h - (2¹³⁰ - 5), and select h as the result if the
 	// subtraction underflows, and t otherwise.
-	mut b := u64(0)
-	mut t0, mut t1, mut t2 := u64(0), u64(0), u64(0)
-	t0, b = bits.sub_64(h.lo, poly1305.p.lo, 0)
-	t1, b = bits.sub_64(h.mi, poly1305.p.mi, b)
-	t2, b = bits.sub_64(h.hi, poly1305.p.hi, b)
+	t, b := h.sub_checked(poly1305.p)
 
 	// h = h if h < p else h - p
-	h.lo = select_64(b, h.lo, t0)
-	h.mi = select_64(b, h.mi, t1)
+	h.lo = select_64(b, h.lo, t.lo)
+	h.mi = select_64(b, h.mi, t.mi)
 
 	// Finally, we compute tag = h + s  mod  2¹²⁸
 	// s is 128 bit of po.s, ie, Uint128
-	mut c := u64(0)
-	h.lo, c = bits.add_64(h.lo, s.lo, 0)
-	h.mi, _ = bits.add_64(h.mi, s.hi, c)
+	tag, _ := h.add_128_checked(s, 0)
 
-	// take only low 128 bit of h
-	binary.little_endian_put_u64(mut out[0..8], h.lo)
-	binary.little_endian_put_u64(mut out[8..16], h.mi)
+	// take only low 128 bit of x
+	binary.little_endian_put_u64(mut out[0..8], tag.lo)
+	binary.little_endian_put_u64(mut out[8..16], tag.mi)
 }
 
-// mul_h_by_r multiplies accumulator h by r and stores the result in four of 64 bit limbs in t
+// mul_h_by_r multiplies accumulator h by r and stores the result into four of 64 bit limbs t
 fn mul_h_by_r(mut t [4]u64, mut h Uint192, r unsigned.Uint128) {
 	// Let's multiply h by r, h *= r, and stores the result into raw 320 bits of xh and hb
-	// In properly clamped r and reduced h, hb.hi bits should not be set, ie, hb.hi == 0 
+	// In properly clamped r and reduced h, hb.hi bits should not be set, ie, hb.hi == 0
 	// see comments on mul_128_checked for details.
 	xh, hb := h.mul_128_checked(r)
 
@@ -341,28 +334,28 @@ fn mul_h_by_r(mut t [4]u64, mut h Uint192, r unsigned.Uint128) {
 	t[3] = hb.lo
 }
 
-// squeeze reduces accumulator h by doing partial reduction module p
+// squeeze reduces by doing partial reduction module p
 // where t is result of previous h*r from mul_h_by_r calls.
 fn squeeze(mut h Uint192, t [4]u64) {
-	// we follow the go version, by splitting from previous result in `t`
-	// at the 2¹³⁰ mark into h and cc, the carry.
-	// begin by splitting t
-	mut h0, mut h1, mut h2 := t[0], t[1], t[2] & poly1305.mask_low2bits // 130 bit of h
+	// we need to reduce 4 of 64 bit limbs in t modulo 2¹³⁰ - 5.
+	// we follow the go version, by splitting result at the 2¹³⁰ mark into h and cc, the carry.
+	mut ac := Uint192{
+		lo: t[0]
+		mi: t[1]
+		hi: t[2] & poly1305.mask_low2bits
+	}
 	mut cc := unsigned.uint128_new(t[2] & poly1305.mask_high62bits, t[3])
-
+	// From golang comment (description), the carry bits are effectively shifted left by 2,
+	// in other words, cc = c * 4 for the c in the reduction identity
+	// To add c * 5 to h, we first add cc = c * 4, and then add (cc >> 2) = c.
+	// c * 2¹³⁰ + h  =  c * 5 + h  (mod  2¹³⁰ - 5)
+	
 	mut c := u64(0)
-	h0, c = bits.add_64(h0, cc.lo, 0)
-	h1, c = bits.add_64(h1, cc.hi, c)
-	h2 += c
-
+	ac, c = ac.add_128_checked(cc, c)
 	cc = shift_right_by2(mut cc)
 
-	h0, c = bits.add_64(h0, cc.lo, 0)
-	h1, c = bits.add_64(h1, cc.hi, c)
-	h2 += c
-
-	// updates h
-	h.lo = h0
-	h.mi = h1
-	h.hi = h2
+	// once agains
+	ac, c = ac.add_128_checked(cc, 0)
+	// updates accumulator
+	h = ac
 }
