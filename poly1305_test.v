@@ -89,8 +89,10 @@ fn test_poly1305_smoked_data_vectors() ! {
 		poly.finish(mut tag)
 
 		assert tag == expected_tag
-
-		mut res := verify_tag(tag, msg, key)
+		// after finish, the state is reseted, so reinit it
+		poly.reinit(key)
+		poly.h = s
+		mut res := poly.verify(tag, msg)
 		assert res == true
 
 		// If the key is zero, the tag will always be zero, independent of the input.
