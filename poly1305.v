@@ -27,13 +27,17 @@ const rmask1 = u64(0x0FFFFFFC0FFFFFFC)
 // mask value for low 2 bits of u64 value
 const mask_low2bits = u64(0x0000000000000003)
 // mask value for high 62 bits of u64 value
-const mask_high62bits = u64(0xfffffffffffffffc)
+const mask_high62bits = u64(0XFFFFFFFFFFFFFFFC)
 // mask value for high 60 bits of u64 value
 const mash_high60bits = u64(0xFFFFFFFFFFFFFFF0)
 	
 // p is 130 bit of Poly1305 constant prime, ie 2^130-5
 // as defined in rfc, p = 3fffffffffffffffffffffffffffffffb
-const p = [u64(0xFFFFFFFFFFFFFFFB), u64(0xFFFFFFFFFFFFFFFF), u64(0x0000000000000003)]
+const p = Uint192{
+	lo: u64(0xFFFFFFFFFFFFFFFB)
+	mi: u64(0xFFFFFFFFFFFFFFFF)
+	hi: u64(0x0000000000000003)
+}
 
 // Poly1305 mac instance
 struct Poly1305 {
@@ -87,13 +91,13 @@ pub fn new(key []u8) !&Poly1305 {
 }
 
 
-// create_tag generates 16 byte one-time message authenticator code (mac) stored inside out.
+// create_tag generates 16 bytes tag, ie, one-time message authenticator code (mac) stored into out.
 // Its accepts message bytes to be authenticated and the 32 bytes of the key.
 // This is an oneshot function to create a tag and reset internal state after the call.
 // For incremental updates, use the method based on Poly1305 mac instance.
 pub fn create_tag(mut out []u8, msg []u8, key []u8) ! {
 	if out.len != poly1305.tag_size {
-		return error('bad out tag_size')
+		return error('poly1305: bad out tag_size')
 	}
 	mut po := new(key)!
 	mut m := msg.clone()
@@ -104,7 +108,7 @@ pub fn create_tag(mut out []u8, msg []u8, key []u8) ! {
 }
 
 // verify_tag verifies the message authentication code in the tag from the message msg
-// compared to the mac from the calculated results with input message and key.
+// compared to the tag from the calculated ;process.
 // Its return true if two tag is matching, and false otherwise.
 pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
 	mut po := new(key) or { panic(err) }
@@ -115,7 +119,7 @@ pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
 	return subtle.constant_time_compare(tag, out) == 1
 }
 
-// Finish finalizes the message authentication code computation and stores the result in out.
+// finish finalizes the message authentication code computation and stores the result in out.
 // After calls this method, don't use the instance anymore to do most anything, but,
 // you should reinitialize the instance with the new key with reinit method instead.
 pub fn (mut po Poly1305) finish(mut out []u8) {
@@ -226,7 +230,7 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 	mut h := po.h
 	mut t := [4]u64{}
 	
-	// The main routine for updating internal poly1305 state with blocks of messages was done with step:
+	// The main routine for updating internal poly1305 state with blocks of messages done with step:
 	// - chop messages into 16-byte blocks and read block as little-endian number;
 	// - add one bit beyond the number (its dependz on the size of the block);
 	// - add this number to the accumulator and then multiply the accumulator by "r".
