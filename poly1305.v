@@ -11,9 +11,9 @@ import math.unsigned
 import encoding.binary
 import crypto.internal.subtle
 
-// Constant defined in this module
+// Constants defined in this module
 // -------------------------------
-// block_size is the internal size of the Poly1305 block that operates on
+// block_size is the internal size of the Poly1305 block that is operates on
 const block_size = 16
 // key_size is a 256-bit one-time key size for input to Poly1305 mac in bytes.
 const key_size = 32
@@ -21,25 +21,25 @@ const key_size = 32
 const tag_size = 16
 
 // mask value for clamping low 64 bits of the r part, clearing 10 bits
-const rmask0 = u64(0x0FFFFFFC0FFFFFFF)
+const rmask0 = u64(0x0FFF_FFFC_0FFF_FFFF)
 const not_rmask0 = ~rmask0
 // mask value for clamping high 64 bits of the r part, clearing 12 bits
-const rmask1 = u64(0x0FFFFFFC0FFFFFFC)
+const rmask1 = u64(0x0FFF_FFFC_0FFF_FFFC)
 const not_rmask1 = ~rmask1
 
 // mask value for low 2 bits of u64 value
-const mask_low2bits = u64(0x0000000000000003)
+const mask_low2bits = u64(0x0000_0000_0000_0003)
 // mask value for high 62 bits of u64 value
-const mask_high62bits = u64(0xFFFFFFFFFFFFFFFC)
+const mask_high62bits = u64(0xFFFF_FFFF_FFFF_FFFC)
 // mask value for high 60 bits of u64 value
-const mask_high60bits = u64(0xFFFFFFFFFFFFFFF0)
+const mask_high60bits = u64(0xFFFF_FFFF_FFFF_FFF0)
 
 // p is 130 bit of Poly1305 constant prime, ie 2^130-5
 // as defined in rfc, p = 3fffffffffffffffffffffffffffffffb
 const p = Uint192{
-	lo: u64(0xFFFFFFFFFFFFFFFB)
-	mi: u64(0xFFFFFFFFFFFFFFFF)
-	hi: u64(0x0000000000000003)
+	lo: u64(0xFFFF_FFFF_FFFF_FFFB)
+	mi: u64(0xFFFF_FFFF_FFFF_FFFF)
+	hi: u64(0x0000_0000_0000_0003)
 }
 
 // Poly1305 mac instance
@@ -93,8 +93,8 @@ pub fn new(key []u8) !&Poly1305 {
 	return ctx
 }
 
-// create_tag generates 16 bytes tag, ie, one-time message authenticator code (mac) stored into out.
-// Its accepts message bytes to be authenticated and the 32 bytes of the key.
+// create_tag generates 16 bytes tag, i.e., a one-time message authenticator code (mac) stored into out.
+// It accepts the message bytes to be authenticated and the 32 bytes of the key.
 // This is an oneshot function to create a tag and reset internal state after the call.
 // For incremental updates, use the method based on Poly1305 mac instance.
 pub fn create_tag(mut out []u8, msg []u8, key []u8) ! {
@@ -105,13 +105,12 @@ pub fn create_tag(mut out []u8, msg []u8, key []u8) ! {
 	mut m := msg.clone()
 	po.update_block(mut m)
 	po.finish(mut out)
-	// zeroise Poly1305 fields
 	po.reset()
 }
 
 // verify_tag verifies the tag is a valid message authentication code for the msg
 // compared to the tag outputed from the calculated process.
-// Its return true if two tag is matching, and false otherwise.
+// It returns `true` if two tags is matching, `false` otherwise.
 pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
 	mut po := new(key) or { panic(err) }
 	mut out := []u8{len: poly1305.tag_size}
@@ -136,7 +135,7 @@ pub fn (mut po Poly1305) finish(mut out []u8) {
 	po.reset()
 }
 
-// verify does verifying if the tag is a valid message authenticated code for message msg.
+// verify verifies if the `tag` is a valid message authenticated code for message `msg`.
 pub fn (mut po Poly1305) verify(tag []u8, msg []u8) bool {
 	mut out := []u8{len: poly1305.tag_size}
 	po.update(msg)
@@ -181,7 +180,7 @@ pub fn (mut po Poly1305) update_block(mut msg []u8) {
 	}
 }
 
-// reset zeroizes the Poly1305 mac instance and makes it in an unusable state.
+// reset zeroes the Poly1305 mac instance and puts it in an unusable state.
 // You should reinit the instance with the new key instead to make it usable again.
 fn (mut po Poly1305) reset() {
 	po.r = unsigned.uint128_zero
@@ -251,7 +250,7 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 			// add msg block to accumulator, h += m
 			h, c = h.add_128_checked(m, 0)
 			// The rfc requires us to set a bit just above the message size, ie,
-			// add one bit beyond the number of octets.  For a 16-byte block,
+			// add one bit beyond the number of octets. For a 16-byte block,
 			// this is equivalent to adding 2^128 to the number.
 			// so we can just add 1 to the high part of accumulator (h.hi += 1)
 			h.hi, c = bits.add_64(h.hi, 1, c)
@@ -292,8 +291,8 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 	po.h = h
 }
 
-// finalize does final reduction of accumulator h, adds it with secret s,
-// and then take 128 bit of h stored into out.
+// finalize finalizes the reduction of accumulator h, adds it with secret s,
+// and then take 128 bits of h stored into out.
 fn finalize(mut out []u8, mut ac Uint192, s unsigned.Uint128) {
 	assert out.len == poly1305.tag_size
 	mut h := ac
@@ -314,7 +313,7 @@ fn finalize(mut out []u8, mut ac Uint192, s unsigned.Uint128) {
 	binary.little_endian_put_u64(mut out[8..16], tag.mi)
 }
 
-// mul_h_by_r multiplies accumulator h by r and stores the result into four of 64 bit limbs t
+// mul_h_by_r multiplies accumulator h by r and stores the result into four of the 64 bit limbs
 fn mul_h_by_r(mut t [4]u64, mut h Uint192, r unsigned.Uint128) {
 	// Let's multiply h by r, h *= r, and stores the result into raw 320 bits of xh and hb
 	// In properly clamped r and reduced h, hb.hi bits should not be set, ie, hb.hi == 0

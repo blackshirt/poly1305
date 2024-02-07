@@ -5,11 +5,10 @@ import math.unsigned
 
 const uint192_zero = Uint192{}
 
-// Uint192 is a structure represents 192 bits of unsigned integer.
-// It main purpose here is a custom allocator for poly1305 operates on.
+// Uint192 is a structure representing 192 bits of unsigned integer.
+// It serves as a custom allocator for the poly1305 implementation to use.
 // However, it can be used to complement and expand the standard `math.unsigned`
 // module with a more complete and extensive range of handling of unsigned integers.
-// But that is another story.
 struct Uint192 {
 mut:
 	lo u64
@@ -17,8 +16,8 @@ mut:
 	hi u64
 }
 
-// We define several required functionality on this custom allocator.
-//	
+// Here, we define several required functionalities of the custom allocator.
+
 // add_checked returns u+v with carry
 fn (u Uint192) add_checked(v Uint192, c u64) (Uint192, u64) {
 	lo, c0 := bits.add_64(u.lo, v.lo, c)
@@ -52,10 +51,10 @@ fn (u Uint192) sub_checked(v Uint192) (Uint192, u64) {
 	return Uint192{lo, mi, hi}, b2
 }
 
-// mul_64_checked returns u*v even the result size is over > 192 bit.
-// It return (Uin192, u64) pair where the former stores low 192 bit and
-// and the rest of high bit stored in the u64 part. You can check the value of u64 part
-// for c != 0, its mean, the product of u*v is overflowing 192 bits.
+// mul_64_checked returns `u*v` even if the result size is over > 192 bits.
+// It returns a `(Uin192, u64)` pair where the former stores the low 192 bits and
+// the rest of high bits stored in the `u64` part. You can check the value of the `u64` part
+// for `c != 0`, it's mean, the product of `u*v` is overflowing 192 bits.
 fn (u Uint192) mul_64_checked(v u64) (Uint192, u64) {
 	// see mul_128_checked for the logic
 	m0 := u128_from_64_mul(u.lo, v)
@@ -79,22 +78,22 @@ fn (u Uint192) mul_64_checked(v u64) (Uint192, u64) {
 }
 
 // mul_128_checked is a generic product of 192 bits u by 128 bits v.
-// Its returns u*v even the result is over > 192 bits, and stores the remaining
-// high bits of the result in Uint128 structure.
+// Its returns u*v even if the result is over > 192 bits, and stores the remaining
+// high bits of the result into the Uint128 structure.
 fn (u Uint192) mul_128_checked(v unsigned.Uint128) (Uint192, unsigned.Uint128) {
-	// 		        u.hi	    u.mi         u.lo
-	//				            v.hi         v.lo
-	// --------------------------------------------x
-	//              uhi*vlo      umi*vlo     ulo*vlo
-	//   uhi*vhi    umi*vhi      ulo*vhi
-	// ----------------------------------------------
-	//		  m3         m2          m1           m0       // Uint128
+	//                  u.hi         u.mi        u.lo
+	//                               v.hi        v.lo
+	// ---------------------------------------------------------- x
+	//                  uhi*vlo      umi*vlo     ulo*vlo
+	//      uhi*vhi     umi*vhi      ulo*vhi
+	// ==========================================================
+	//      m3          m2           m1          m0                // Uint128
 	//
-	// -----------------------------------------------
-	//		m3.hi		m2.hi		m1.hi		m0.hi
-	//					m3.lo		m2.lo		m1.lo	m0.lo
-	// ------------------------------------------------------ +
-	// 	   	t4			t3		 	t2			t1		t0
+	// ---------------------------------------------------------- +
+	//      m3.hi       m2.hi       m1.hi        m0.hi
+	//                  m3.lo       m2.lo        m1.lo     m0.lo
+	// ==========================================================
+	//      t4          t3          t2           t1        t0
 	//
 	ulovlo := u128_from_64_mul(u.lo, v.lo)
 	umivlo := u128_from_64_mul(u.mi, v.lo)
@@ -112,12 +111,12 @@ fn (u Uint192) mul_128_checked(v unsigned.Uint128) (Uint192, unsigned.Uint128) {
 		panic('Uint192: unexpected overflow')
 	}
 	// Note about the multiplication results in Poly1305 context.
-	// In properly clamped 128 bits of v, (called "r" in the poly1305 context) and
+	// In the properly clamped 128 bits of v, (called "r" in the poly1305 context) and
 	// safely reduced form of high part of the 192 bits accumulator u (u.hi), where only
 	// maximum of four low bits of u.hi is set, and we can assume (and confirm with tests)
-	// if the high bit part of the product of uhi*vhi and uhi*vlo  is not set,
-	// ie, x =  (uhi*vhi).hi == 0 and y = (uhi*vlo).hi == 0.
-	// and the 128 bits addition of m2 = uhi*vlo + umi*vhi would also not overflowing 128 bits,
+	// if the high bit part of the product of uhi*vhi and uhi*vlo is not set,
+	// ie, x = (uhi*vhi).hi == 0 and y = (uhi*vlo).hi == 0.
+	// and the 128 bits addition of `m2 = uhi*vlo + umi*vhi`, would also not overflow 128 bits,
 	// thats also mean, the last carry is null for the reason and m3 = (uhi*vhi).hi is also null
 	//
 	t0 := m0.lo
@@ -129,7 +128,7 @@ fn (u Uint192) mul_128_checked(v unsigned.Uint128) (Uint192, unsigned.Uint128) {
 		panic('Uint192: unexpected overflow')
 	}
 	// based on previous notes, for poly1305 context, it tells us if the product
-	// doesn't have a fitfh limbs (t4), ie t4 == null, and we can safely ignore it.
+	// doesn't have a fitfh limb (t4), ie t4 == null, and we can safely ignore it.
 	//
 	x := Uint192{
 		lo: t0
