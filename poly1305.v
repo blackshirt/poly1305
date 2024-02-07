@@ -19,6 +19,7 @@ const block_size = 16
 const key_size = 32
 // tag_size is the size of the output of the Poly1305 result, in bytes.
 const tag_size = 16
+	
 // mask value for clamping low 64 bits of the r part, clearing 10 bits
 const rmask0 = u64(0x0FFFFFFC0FFFFFFF)
 // mask value for clamping high 64 bits of the r part, clearing 12 bits
@@ -27,6 +28,9 @@ const rmask1 = u64(0x0FFFFFFC0FFFFFFC)
 const mask_low2bits = u64(0x0000000000000003)
 // mask value for high 62 bits of u64 value
 const mask_high62bits = u64(0xfffffffffffffffc)
+// mask value for high 60 bits of u64 value
+const mash_high60bits = u64(0xFFFFFFFFFFFFFFF0)
+	
 // p is 130 bit of Poly1305 constant prime, ie 2^130-5
 // as defined in rfc, p = 3fffffffffffffffffffffffffffffffb
 const p = [u64(0xFFFFFFFFFFFFFFFB), u64(0xFFFFFFFFFFFFFFFF), u64(0x0000000000000003)]
@@ -39,7 +43,7 @@ mut:
 	// where r is clamped before stored and the s part is kept secret.
 	r unsigned.Uint128
 	s unsigned.Uint128
-	// Poly1305 arithmatic accumulator
+	// Poly1305 accumulator
 	h Uint192
 	// buffer
 	buffer   []u8 = []u8{len: poly1305.block_size}
@@ -49,7 +53,7 @@ mut:
 	done bool
 }
 
-// new creates a new Poly1305 instance from 32 bytes of key provided.
+// new creates a new Poly1305 mac instance from 32 bytes of key provided.
 @[direct_array_access]
 pub fn new(key []u8) !&Poly1305 {
 	if key.len != poly1305.key_size {
@@ -82,45 +86,11 @@ pub fn new(key []u8) !&Poly1305 {
 	return ctx
 }
 
-// reset zeroizes the Poly1305 instance and makes it in an unusable state.
-// You should reinit the instance with the new key instead to make it usable again.
-fn (mut po Poly1305) reset() {
-	po.r = unsigned.uint128_zero
-	po.s = unsigned.uint128_zero
-	po.h = uint192_zero
-	po.leftover = 0
-	unsafe {
-		po.buffer.reset()
-	}
-	// We set the done flag to true to prevent accidental calls
-	// to update or finish methods on the instance.
-	po.done = true
-}
-
-// reinit reinitializes Poly1305 instance by resetting internal fields, and
-// then reinit instance with the new key.
-pub fn (mut po Poly1305) reinit(key []u8) {
-	if key.len != poly1305.key_size {
-		panic('bad key size')
-	}
-	// first, we reset the instance and than setup its again
-	po.reset()
-	po.r = unsigned.Uint128{
-		lo: binary.little_endian_u64(key[0..8]) & poly1305.rmask0
-		hi: binary.little_endian_u64(key[8..16]) & poly1305.rmask1
-	}
-	po.s = unsigned.Uint128{
-		lo: binary.little_endian_u64(key[16..24])
-		hi: binary.little_endian_u64(key[24..32])
-	}
-	// we set po.done to false, to make its usable again.
-	po.done = false
-}
 
 // create_tag generates 16 byte one-time message authenticator code (mac) stored inside out.
 // Its accepts message bytes to be authenticated and the 32 bytes of the key.
 // This is an oneshot function to create a tag and reset internal state after the call.
-// For incremental updates, use the method based on Poly1305 instance.
+// For incremental updates, use the method based on Poly1305 mac instance.
 pub fn create_tag(mut out []u8, msg []u8, key []u8) ! {
 	if out.len != poly1305.tag_size {
 		return error('bad out tag_size')
@@ -205,15 +175,51 @@ pub fn (mut po Poly1305) update_block(mut msg []u8) {
 	}
 }
 
-// update_generic updates internal state of Poly1305 instance with blocks of msg.
+// reset zeroizes the Poly1305 mac instance and makes it in an unusable state.
+// You should reinit the instance with the new key instead to make it usable again.
+fn (mut po Poly1305) reset() {
+	po.r = unsigned.uint128_zero
+	po.s = unsigned.uint128_zero
+	po.h = uint192_zero
+	po.leftover = 0
+	unsafe {
+		po.buffer.reset()
+	}
+	// We set the done flag to true to prevent accidental calls
+	// to update or finish methods on the instance.
+	po.done = true
+}
+
+// reinit reinitializes Poly1305 mac instance by resetting internal fields, and
+// then reinit instance with the new key.
+pub fn (mut po Poly1305) reinit(key []u8) {
+	if key.len != poly1305.key_size {
+		panic('bad key size')
+	}
+	// first, we reset the instance and than setup its again
+	po.reset()
+	po.r = unsigned.Uint128{
+		lo: binary.little_endian_u64(key[0..8]) & poly1305.rmask0
+		hi: binary.little_endian_u64(key[8..16]) & poly1305.rmask1
+	}
+	po.s = unsigned.Uint128{
+		lo: binary.little_endian_u64(key[16..24])
+		hi: binary.little_endian_u64(key[24..32])
+	}
+	// we set po.done to false, to make its usable again.
+	po.done = false
+}
+
+// update_generic updates internal state of Poly1305 mac instance with blocks of msg.
 fn update_generic(mut po Poly1305, mut msg []u8) {
 	// For correctness and clarity, we check whether r is properly clamped.
 	if po.r.lo & u64(0xf0000003f0000000) != 0 && po.r.hi & u64(0xf0000003f0000003) != 0 {
 		panic('poly1305: bad unclamped of r')
 	}
 	// We need the accumulator to be in correctly reduced form to make sure it is not overflowing.
-	// mask with upper 61 bits (for > 130 bits) value
-	if po.h.hi & u64(0xfffffffffffffff8) != 0 {
+	// To be safe when used, only maximum of four low bits of the high part of the accumulator (h.hi) 
+	// can be set, and the remaining high bits must not be set. 
+	if po.h.hi & mash_high60bits != 0 {
 		panic('poly1305: h need to be reduced')
 	}
 	// localize the thing
@@ -244,7 +250,7 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 			// so we can just add 1 to the high part of accumulator (h.hi += 1)
 			h.hi, c = bits.add_64(h.hi, 1, c)
 			if c != 0 {
-				panic('something bad')
+				panic('poly1305: something bad')
 			}
 
 			// updates msg slice
@@ -257,16 +263,16 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 			// set a bit above msg size.
 			buf[msg.len] = u8(0x01)
 
-			// loads 16 bytes of message
+			// loads 16 bytes of message block
 			m := unsigned.Uint128{
 				lo: binary.little_endian_u64(buf[0..8])
 				hi: binary.little_endian_u64(buf[8..16])
 			}
-			// Add this number to the accumulator, ie, h += m
+			// add this number to the accumulator, ie, h += m
 			h, c = h.add_128_checked(m, 0)
 			h.hi, c = bits.add_64(h.hi, 0, c)
 			if c != 0 {
-				panic('something bad')
+				panic('poly1305: something bad')
 			}
 
 			// drains the msg, we have reached the last block
