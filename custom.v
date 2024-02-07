@@ -71,7 +71,7 @@ fn (u Uint192) mul_64_checked(v u64) (Uint192, u64) {
 	return x, t3
 }
 
-// mul_128_checked is a generic product of 192 bits in u by 128 bits in v.
+// mul_128_checked is a generic product of 192 bits u by 128 bits v.
 // Its returns u*v even the result is over > 192 bits, and stores the remaining
 // high bits of the result in Uint128 structure.
 fn (u Uint192) mul_128_checked(v unsigned.Uint128) (Uint192, unsigned.Uint128) {
