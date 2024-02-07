@@ -324,8 +324,8 @@ fn finalize(mut out []u8, mut ac Uint192, s unsigned.Uint128) {
 // mul_h_by_r multiplies accumulator h by r and stores the result in four of 64 bit limbs in t
 fn mul_h_by_r(mut t [4]u64, mut h Uint192, r unsigned.Uint128) {
 	// Let's multiply h by r, h *= r, and stores the result into raw 320 bits of xh and hb
-	// In properly clamped r and reduced h, hb.hi bits should not be set.
-	// see mul_128_checked on custom.v for detail of description (comment).
+	// In properly clamped r and reduced h, hb.hi bits should not be set, ie, hb.hi == 0 
+	// see comments on mul_128_checked for details.
 	xh, hb := h.mul_128_checked(r)
 
 	// check for high bits of the result is not overflowing 256 bits, so we can ignore
