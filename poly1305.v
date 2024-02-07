@@ -107,8 +107,8 @@ pub fn create_tag(mut out []u8, msg []u8, key []u8) ! {
 	po.reset()
 }
 
-// verify_tag verifies the message authentication code in the tag from the message msg
-// compared to the tag from the calculated ;process.
+// verify_tag verifies the tag is a valid message authentication code for the msg
+// compared to the tag outputed from the calculated process.
 // Its return true if two tag is matching, and false otherwise.
 pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
 	mut po := new(key) or { panic(err) }
@@ -119,7 +119,7 @@ pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
 	return subtle.constant_time_compare(tag, out) == 1
 }
 
-// finish finalizes the message authentication code computation and stores the result in out.
+// finish finalizes the message authentication code calculation and stores the result into out.
 // After calls this method, don't use the instance anymore to do most anything, but,
 // you should reinitialize the instance with the new key with reinit method instead.
 pub fn (mut po Poly1305) finish(mut out []u8) {
@@ -134,12 +134,12 @@ pub fn (mut po Poly1305) finish(mut out []u8) {
 	po.reset()
 }
 
-// verify does verify mac code is a valid and authenticated for message msg.
-pub fn (mut po Poly1305) verify(mac []u8, msg []u8) bool {
+// verify does verifying if the tag is a valid message authenticated code for message msg.
+pub fn (mut po Poly1305) verify(tag []u8, msg []u8) bool {
 	mut out := []u8{len: poly1305.tag_size}
 	po.update(msg)
 	po.finish(mut out)
-	return subtle.constant_time_compare(mac, out) == 1
+	return subtle.constant_time_compare(tag, out) == 1
 }
 
 // update updates internal of Poly1305 state by message. Internally, it clones the message
@@ -299,9 +299,9 @@ fn finalize(mut out []u8, mut ac Uint192, s unsigned.Uint128) {
 	// subtraction underflows, and t otherwise.
 	mut b := u64(0)
 	mut t0, mut t1, mut t2 := u64(0), u64(0), u64(0)
-	t0, b = bits.sub_64(h.lo, poly1305.p[0], 0)
-	t1, b = bits.sub_64(h.mi, poly1305.p[1], b)
-	t2, b = bits.sub_64(h.hi, poly1305.p[2], b)
+	t0, b = bits.sub_64(h.lo, poly1305.p.lo, 0)
+	t1, b = bits.sub_64(h.mi, poly1305.p.mi, b)
+	t2, b = bits.sub_64(h.hi, poly1305.p.hi, b)
 
 	// h = h if h < p else h - p
 	h.lo = select_64(b, h.lo, t0)
@@ -320,34 +320,22 @@ fn finalize(mut out []u8, mut ac Uint192, s unsigned.Uint128) {
 
 // mul_h_by_r multiplies accumulator h by r and stores the result in four of 64 bit limbs in t
 fn mul_h_by_r(mut t [4]u64, mut h Uint192, r unsigned.Uint128) {
-	// Let's multiply h by r, h *= r, we stores the result into raw 320 bits of xh and hb
-	// see mul_128_checked on custom.v for detail of logic used.
+	// Let's multiply h by r, h *= r, and stores the result into raw 320 bits of xh and hb
+	// In properly clamped r and reduced h, hb.hi bits should not be set.
+	// see mul_128_checked on custom.v for detail of description (comment).
 	xh, hb := h.mul_128_checked(r)
 
-	// For h[2], it has been checked above; even though its value has to be at most 7 
-	// (for marking h has been overflowing 130 bits), the product of h2 and r0/r1
-	// would not go to overflow 64 bits (exactly, a maximum of 63 bits). 
-	// Its likes in the go version; we can ignore that high part of the product,
-	// ie, h2r0.hi and h2r1.hi is equal to zero, but we elevate check for this.
-	// In properly clamped r, product of h*r would not exceed 128 bits because r0 and r1
-	// are clamped with rmask0 and rmask1 above. Its addition also does not exceed 128 bits either.
-	// So, in other words, it should be c0 = c1 = c2 = 0.
 	// check for high bits of the result is not overflowing 256 bits, so we can ignore
-	// high bit (hb.hi) of the Uint128 part.
+	// high bit (hb.hi) of the Uint128 part, fifth 64 bits limb.
 	if hb.hi != 0 {
 		panic('poly1305: unexpected overflow, non-null 5th limb')
 	}
 
-	// Because the h2r1.hi part is a zero, the m3 product only depends on h2r1.lo.
-	// This also means m3.hi is zero for a similar reason. Furthermore,
-	// it tells us if the product doesn't have a fifth limb (t4), so we can ignore it.
-
-	// updates 5 64-bit limbs
+	// updates 4 64-bit limbs and ignore 5th limb
 	t[0] = xh.lo
 	t[1] = xh.mi
 	t[2] = xh.hi
 	t[3] = hb.lo
-	// we ignore 5th limb
 }
 
 // squeeze reduces accumulator h by doing partial reduction module p
