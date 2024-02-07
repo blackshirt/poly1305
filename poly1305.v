@@ -21,15 +21,18 @@ const key_size = 32
 const tag_size = 16
 	
 // mask value for clamping low 64 bits of the r part, clearing 10 bits
-const rmask0 = u64(0x0FFFFFFC0FFFFFFF)
+const rmask0 	 = u64(0x0FFFFFFC0FFFFFFF)
+const not_rmask0 = ~rmask0
 // mask value for clamping high 64 bits of the r part, clearing 12 bits
-const rmask1 = u64(0x0FFFFFFC0FFFFFFC)
+const rmask1 	 = u64(0x0FFFFFFC0FFFFFFC)
+const not_rmask1 = ~rmask1
+
 // mask value for low 2 bits of u64 value
 const mask_low2bits = u64(0x0000000000000003)
 // mask value for high 62 bits of u64 value
 const mask_high62bits = u64(0xFFFFFFFFFFFFFFFC)
 // mask value for high 60 bits of u64 value
-const mash_high60bits = u64(0xFFFFFFFFFFFFFFF0)
+const mask_high60bits = u64(0xFFFFFFFFFFFFFFF0)
 	
 // p is 130 bit of Poly1305 constant prime, ie 2^130-5
 // as defined in rfc, p = 3fffffffffffffffffffffffffffffffb
@@ -217,13 +220,13 @@ pub fn (mut po Poly1305) reinit(key []u8) {
 // update_generic updates internal state of Poly1305 mac instance with blocks of msg.
 fn update_generic(mut po Poly1305, mut msg []u8) {
 	// For correctness and clarity, we check whether r is properly clamped.
-	if po.r.lo & u64(0xf0000003f0000000) != 0 && po.r.hi & u64(0xf0000003f0000003) != 0 {
+	if po.r.lo & not_rmask0 != 0 && po.r.hi & not_rmask1 != 0 {
 		panic('poly1305: bad unclamped of r')
 	}
 	// We need the accumulator to be in correctly reduced form to make sure it is not overflowing.
 	// To be safe when used, only maximum of four low bits of the high part of the accumulator (h.hi) 
 	// can be set, and the remaining high bits must not be set. 
-	if po.h.hi & mash_high60bits != 0 {
+	if po.h.hi & mask_high60bits != 0 {
 		panic('poly1305: h need to be reduced')
 	}
 	// localize the thing
