@@ -108,10 +108,10 @@ fn (u Uint192) mul_128_checked(v unsigned.Uint128) (Uint192, unsigned.Uint128) {
 	// In properly clamped 128 bits of v, (called "r" in the poly1305 context) and 
 	// safely reduced form of high part of the 192 bits accumulator u (u.hi), where only 
 	// maximum of four low bits of u.hi is set, and we can assume (and confirm with tests)
-	// The high bit part of the product of uhi*vhi and uhi*vlo  is not set, 
+	// if the high bit part of the product of uhi*vhi and uhi*vlo  is not set, 
 	// ie, x =  (uhi*vhi).hi == 0 and y = (uhi*vlo).hi == 0.
-	// and the 128 bits addition of m2 = uhi*vlo + umi*vhi would not overflowing 128 bits, 
-	// thats also mean, the last carry is null for the reason, m3 = (uhi*vhi).hi is also null 
+	// and the 128 bits addition of m2 = uhi*vlo + umi*vhi would also not overflowing 128 bits, 
+	// thats also mean, the last carry is null for the reason and m3 = (uhi*vhi).hi is also null 
 	//
 	t0 := m0.lo
 	t1, c4 := bits.add_64(m0.hi, m1.lo, 0)
