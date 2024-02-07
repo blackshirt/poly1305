@@ -121,14 +121,6 @@ pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
 	return subtle.constant_time_compare(tag, out) == 1
 }
 
-pub fn (mut po Poly1305) build_tag(mut out []u8) {
-	mut ctx := po
-	if ctx.leftover > 0 {
-		update_generic(mut ctx, mut ctx.buffer[..ctx.leftover])
-	}
-	finalize(mut out, mut ctx.h, ctx.s)
-}
-
 // finish finalizes the message authentication code calculation and stores the result into out.
 // After calls this method, don't use the instance anymore to do most anything, but,
 // you should reinitialize the instance with the new key with reinit method instead.
