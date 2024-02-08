@@ -102,9 +102,8 @@ pub fn create_tag(mut out []u8, msg []u8, key []u8) ! {
 		return error('poly1305: bad out tag_size')
 	}
 	mut po := new(key)!
-	mut m := unsafe { msg[..] }
-	po.update_block(mut m)
-		po.finish(mut out) yap
+	po.update(msg)
+	po.finish(mut out)
 }
 
 // verify_tag verifies the tag is a valid message authentication code for the msg
@@ -113,8 +112,7 @@ pub fn create_tag(mut out []u8, msg []u8, key []u8) ! {
 pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
 	mut po := new(key) or { panic(err) }
 	mut out := []u8{len: poly1305.tag_size}
-	mut m := unsafe { msg[..] }
-	po.update_block(mut m)
+	po.update(msg,)
 	po.finish(mut out)
 	return subtle.constant_time_compare(tag, out) == 1
 }
