@@ -112,7 +112,7 @@ pub fn create_tag(mut out []u8, msg []u8, key []u8) ! {
 pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
 	mut po := new(key) or { panic(err) }
 	mut out := []u8{len: poly1305.tag_size}
-	po.update(msg,)
+	po.update(msg)
 	po.finish(mut out)
 	return subtle.constant_time_compare(tag, out) == 1
 }
