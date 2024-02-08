@@ -116,7 +116,14 @@ pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
 	po.finish(mut out)
 	return subtle.constant_time_compare(tag, out) == 1
 }
-
+		
+// update updates internal of Poly1305 state by message. Internally, it clones the message
+// and supplies it to the update_block method. See the `update_block` method for details.
+pub fn (mut po Poly1305) update(msg []u8) {
+	mut m := unsafe { msg[..] }
+	po.update_block(mut m)
+}
+		
 // finish finalizes the message authentication code calculation and stores the result into out.
 // After calls this method, don't use the instance anymore to do most anything, but,
 // you should reinitialize the instance with the new key with reinit method instead.
@@ -132,37 +139,11 @@ pub fn (mut po Poly1305) finish(mut out []u8) {
 	po.reset()
 }
 
-// verify verifies if the `tag` is a valid message authenticated code within current
-// state of the poly1305 instance. You should do verify after
-// updating state with some message.
-pub fn (mut po Poly1305) verify(tag []u8) bool {
-	mut mac := []u8{len: poly1305.tag_size}
-	// po.update(msg)
-	// po.finish(mut out)
-	// we create clone of the current poly1305 instance,
-	// and working on this clone. Internally, its works 
-	// by performing .finish on this context and writing tag to 
-	// out buffer and compare with the `tag` provided.
-	ctx := po
-	if ctx.leftover > 0 {
-		update_generic(mut ctx, mut ctx.buffer[..ctx.leftover])
-	}
-	finalize(mut mac, mut ctx.h, ctx.s)
-	ctx.reset()
-	return subtle.constant_time_compare(tag, mac) == 1
-}
-
-// update updates internal of Poly1305 state by message. Internally, it clones the message
-// and supplies it to the update_block method. See the `update_block` method for details.
-pub fn (mut po Poly1305) update(msg []u8) {
-	mut m := msg.clone()
-	po.update_block(mut m)
-}
-
 // update_block updates the internals of Poly105 state by block of message. As a note,
 // it accepts mutable message data for performance reasons by avoiding message
 // clones and working on message slices directly.
-pub fn (mut po Poly1305) update_block(mut msg []u8) {
+// For simplicity, we dont export this method as a public, use `.update` instead
+fn (mut po Poly1305) update_block(mut msg []u8) {
 	if msg.len == 0 {
 		return
 	}
