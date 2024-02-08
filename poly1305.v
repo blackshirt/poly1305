@@ -120,8 +120,9 @@ pub fn new(key []u8) !&Poly1305 {
 // update updates internal of Poly1305 state by message. Internally, it clones the message
 // and supplies it to the update_block method. See the `update_block` method for details.
 pub fn (mut po Poly1305) update(msg []u8) {
-	mut m := unsafe { msg[..] }
-	po.update_block(mut m)
+	mut m := msg.clone() // unsafe { msg[..] }
+	// po.update_block(mut m)
+	poly1305_update(mut po, mut m)
 }
 
 pub fn (po Poly1305) verify(tag []u8) bool {
@@ -171,6 +172,42 @@ pub fn (mut po Poly1305) reinit(key []u8) {
 	po.done = false
 }
 
+fn poly1305_update(mut po Poly1305, mut msg []u8) {
+	if po.leftover > 0 {
+		want := math.min(poly1305.block_size - po.leftover, msg.len)
+		dump(want)
+		dump(msg.len)
+		//mm := msg[..want].clone()
+		_ := copy(mut po.buffer[po.leftover..], msg[..want])
+		// for i, v in mm {
+		//		po.buffer[po.leftover + i] = v
+		//}
+
+		msg = unsafe { msg[want..] }
+		po.leftover += want
+
+		if po.leftover < poly1305.block_size {
+			return
+		}
+		update_generic(mut po, mut po.buffer)
+		// po.process_the_block(false)
+		po.leftover = 0
+	}
+
+	for msg.len >= poly1305.block_size {
+		// subtle.constant_time_copy(1, mut po.buffer, msg[..poly1305.block_size])
+		_ := copy(mut po.buffer, msg[..poly1305.block_size])
+		// po.process_the_block(false)
+		update_generic(mut po, mut po.buffer)
+		msg = unsafe { msg[poly1305.block_size..] }
+	}
+	if msg.len > 0 {
+		subtle.constant_time_copy(1, mut po.buffer[..msg.len], msg)
+		// po.leftover = msg.len
+		// po.leftover += copy(mut po.buffer[po.leftover..], msg)
+	}
+}
+
 // update_block updates the internals of Poly105 state by block of message. As a note,
 // it accepts mutable message data for performance reasons by avoiding message
 // clones and working on message slices directly.
@@ -183,9 +220,7 @@ fn (mut po Poly1305) update_block(mut msg []u8) {
 		panic('poly1305: has done, please reinit with the new key')
 	}
 	// handle leftover
-	mut mlen := msg.len
 	if po.leftover > 0 {
-		/*
 		n := copy(mut po.buffer[po.leftover..], msg)
 		if po.leftover + n < poly1305.block_size {
 			po.leftover += n
@@ -194,52 +229,16 @@ fn (mut po Poly1305) update_block(mut msg []u8) {
 		msg = unsafe { msg[n..] }
 		po.leftover = 0
 		update_generic(mut po, mut po.buffer)
-		*/
-		mut want := poly1305.block_size - po.leftover
-		if want > mlen {
-			want = mlen
-		}
-
-		for i := 0; i < want; i++ {
-			po.buffer[po.leftover + i] = msg[i]
-		}
-
-		mlen -= want
-		msg = unsafe { msg[want..] } // += want
-		po.leftover += want
-		if po.leftover < poly1305.block_size {
-			return
-		}
-
-		update_generic(mut po, mut po.buffer)
-		po.leftover = 0
 	}
-	/*
+
 	nn := msg.len - msg.len % poly1305.tag_size
 	if nn > 0 {
 		update_generic(mut po, mut msg[..nn])
 		msg = unsafe { msg[nn..] }
 	}
-	*/
-	// process full blocks
-	if mlen >= poly1305.block_size {
-		mut want := (mlen & ~(poly1305.block_size - 1))
-		update_generic(mut po, mut msg[..want])
-		msg = unsafe { msg[want..] } // m += want;
-		mlen -= want
-	}
-	/*
+
 	if msg.len > 0 {
 		po.leftover += copy(mut po.buffer[po.leftover..], msg)
-	}
-	*/
-	// store leftover
-	if mlen > 0 {
-		nn := copy(mut po.buffer[po.leftover..], msg)
-		for i := 0; i < mlen; i++ {
-			po.buffer[po.leftover + i] = msg[i]
-		}
-		po.leftover += mlen
 	}
 }
 
