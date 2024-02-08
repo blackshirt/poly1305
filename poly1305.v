@@ -60,6 +60,30 @@ mut:
 	done bool
 }
 
+// create_tag generates 16 bytes tag, i.e., a one-time message authenticator code (mac) stored into out.
+// It accepts the message bytes to be authenticated and the 32 bytes of the key.
+// This is an oneshot function to create a tag and reset internal state after the call.
+// For incremental updates, use the method based on Poly1305 mac instance.
+pub fn create_tag(mut out []u8, msg []u8, key []u8) ! {
+	if out.len != poly1305.tag_size {
+		return error('poly1305: bad out tag_size')
+	}
+	mut po := new(key)!
+	po.update(msg)
+	po.finish(mut out)
+}
+
+// verify_tag verifies the tag is a valid message authentication code for the msg
+// compared to the tag outputed from the calculated process.
+// It returns `true` if two tags is matching, `false` otherwise.
+pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
+	mut po := new(key) or { panic(err) }
+	mut out := []u8{len: poly1305.tag_size}
+	po.update(msg)
+	po.finish(mut out)
+	return subtle.constant_time_compare(tag, out) == 1
+}
+
 // new creates a new Poly1305 mac instance from 32 bytes of key provided.
 @[direct_array_access]
 pub fn new(key []u8) !&Poly1305 {
@@ -93,37 +117,25 @@ pub fn new(key []u8) !&Poly1305 {
 	return ctx
 }
 
-// create_tag generates 16 bytes tag, i.e., a one-time message authenticator code (mac) stored into out.
-// It accepts the message bytes to be authenticated and the 32 bytes of the key.
-// This is an oneshot function to create a tag and reset internal state after the call.
-// For incremental updates, use the method based on Poly1305 mac instance.
-pub fn create_tag(mut out []u8, msg []u8, key []u8) ! {
-	if out.len != poly1305.tag_size {
-		return error('poly1305: bad out tag_size')
-	}
-	mut po := new(key)!
-	po.update(msg)
-	po.finish(mut out)
-}
-
-// verify_tag verifies the tag is a valid message authentication code for the msg
-// compared to the tag outputed from the calculated process.
-// It returns `true` if two tags is matching, `false` otherwise.
-pub fn verify_tag(tag []u8, msg []u8, key []u8) bool {
-	mut po := new(key) or { panic(err) }
-	mut out := []u8{len: poly1305.tag_size}
-	po.update(msg)
-	po.finish(mut out)
-	return subtle.constant_time_compare(tag, out) == 1
-}
-		
 // update updates internal of Poly1305 state by message. Internally, it clones the message
 // and supplies it to the update_block method. See the `update_block` method for details.
 pub fn (mut po Poly1305) update(msg []u8) {
 	mut m := unsafe { msg[..] }
 	po.update_block(mut m)
 }
-		
+
+pub fn (po Poly1305) verify(tag []u8) bool {
+	assert tag.len == poly1305.tag_size
+	// we work on copy of current instance
+	mut ctx := po
+	mut out := []u8{len: poly1305.tag_size}
+	if ctx.leftover > 0 {
+		update_generic(mut ctx, mut ctx.buffer[..ctx.leftover])
+	}
+	finalize(mut out, mut ctx.h, ctx.s)
+	return subtle.constant_time_compare(tag[..], out) == 1
+}
+
 // finish finalizes the message authentication code calculation and stores the result into out.
 // After calls this method, don't use the instance anymore to do most anything, but,
 // you should reinitialize the instance with the new key with reinit method instead.
@@ -139,37 +151,6 @@ pub fn (mut po Poly1305) finish(mut out []u8) {
 	po.reset()
 }
 
-// update_block updates the internals of Poly105 state by block of message. As a note,
-// it accepts mutable message data for performance reasons by avoiding message
-// clones and working on message slices directly.
-// For simplicity, we dont export this method as a public, use `.update` instead
-fn (mut po Poly1305) update_block(mut msg []u8) {
-	if msg.len == 0 {
-		return
-	}
-	if po.done {
-		panic('poly1305: has done, please reinit with the new key')
-	}
-	if po.leftover > 0 {
-		n := copy(mut po.buffer[po.leftover..], msg)
-		if po.leftover + n < poly1305.block_size {
-			po.leftover += n
-			return
-		}
-		msg = unsafe { msg[n..] }
-		po.leftover = 0
-		update_generic(mut po, mut po.buffer)
-	}
-	nn := msg.len - msg.len % poly1305.tag_size
-	if nn > 0 {
-		update_generic(mut po, mut msg[..nn])
-		msg = unsafe { msg[nn..] }
-	}
-	if msg.len > 0 {
-		po.leftover += copy(mut po.buffer[po.leftover..], msg)
-	}
-}
-		
 // reinit reinitializes Poly1305 mac instance by resetting internal fields, and
 // then reinit instance with the new key.
 pub fn (mut po Poly1305) reinit(key []u8) {
@@ -189,7 +170,79 @@ pub fn (mut po Poly1305) reinit(key []u8) {
 	// we set po.done to false, to make its usable again.
 	po.done = false
 }
-		
+
+// update_block updates the internals of Poly105 state by block of message. As a note,
+// it accepts mutable message data for performance reasons by avoiding message
+// clones and working on message slices directly.
+// For simplicity, we dont export this method as a public, use `.update` instead
+fn (mut po Poly1305) update_block(mut msg []u8) {
+	if msg.len == 0 {
+		return
+	}
+	if po.done {
+		panic('poly1305: has done, please reinit with the new key')
+	}
+	// handle leftover
+	mut mlen := msg.len
+	if po.leftover > 0 {
+		/*
+		n := copy(mut po.buffer[po.leftover..], msg)
+		if po.leftover + n < poly1305.block_size {
+			po.leftover += n
+			return
+		}
+		msg = unsafe { msg[n..] }
+		po.leftover = 0
+		update_generic(mut po, mut po.buffer)
+		*/
+		mut want := poly1305.block_size - po.leftover
+		if want > mlen {
+			want = mlen
+		}
+
+		for i := 0; i < want; i++ {
+			po.buffer[po.leftover + i] = msg[i]
+		}
+
+		mlen -= want
+		msg = unsafe { msg[want..] } // += want
+		po.leftover += want
+		if po.leftover < poly1305.block_size {
+			return
+		}
+
+		update_generic(mut po, mut po.buffer)
+		po.leftover = 0
+	}
+	/*
+	nn := msg.len - msg.len % poly1305.tag_size
+	if nn > 0 {
+		update_generic(mut po, mut msg[..nn])
+		msg = unsafe { msg[nn..] }
+	}
+	*/
+	// process full blocks
+	if mlen >= poly1305.block_size {
+		mut want := (mlen & ~(poly1305.block_size - 1))
+		update_generic(mut po, mut msg[..want])
+		msg = unsafe { msg[want..] } // m += want;
+		mlen -= want
+	}
+	/*
+	if msg.len > 0 {
+		po.leftover += copy(mut po.buffer[po.leftover..], msg)
+	}
+	*/
+	// store leftover
+	if mlen > 0 {
+		nn := copy(mut po.buffer[po.leftover..], msg)
+		for i := 0; i < mlen; i++ {
+			po.buffer[po.leftover + i] = msg[i]
+		}
+		po.leftover += mlen
+	}
+}
+
 // reset zeroes the Poly1305 mac instance and puts it in an unusable state.
 // You should reinit the instance with the new key instead to make it usable again.
 fn (mut po Poly1305) reset() {
@@ -204,8 +257,6 @@ fn (mut po Poly1305) reset() {
 	// to update or finish methods on the instance.
 	po.done = true
 }
-
-
 
 // update_generic updates internal state of Poly1305 mac instance with blocks of msg.
 fn update_generic(mut po Poly1305, mut msg []u8) {
