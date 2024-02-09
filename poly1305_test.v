@@ -4,6 +4,7 @@ import rand
 import encoding.hex
 import encoding.binary
 
+
 // see https://github.com/floodyberry/poly1305-donna/blob/master/poly1305-donna.c
 fn test_incremental_update_ported_from_poly1305donna() ! {
 	nacl_key := [u8(0xee), 0xa6, 0xa7, 0x25, 0x1c, 0x1e, 0x72, 0x91, 0x6d, 0x11, 0xc2, 0xcb, 0x21,
@@ -105,6 +106,7 @@ fn test_incremental_update_ported_from_poly1305donna() ! {
 	po.finish(mut tag)
 	assert tag == nacl_mac
 }
+
 
 fn test_poly1305_with_smoked_messages_are_working_normally() ! {
 	key := rand.bytes(32)!

@@ -122,7 +122,7 @@ pub fn new(key []u8) !&Poly1305 {
 pub fn (mut po Poly1305) update(msg []u8) {
 	mut m := msg.clone() // unsafe { msg[..] }
 	// po.update_block(mut m)
-	poly1305_update(mut po, mut m)
+	poly1305_update(mut po, m)
 }
 
 pub fn (po Poly1305) verify(tag []u8) bool {
@@ -171,7 +171,6 @@ pub fn (mut po Poly1305) reinit(key []u8) {
 	// we set po.done to false, to make its usable again.
 	po.done = false
 }
-
 
 // update_block updates the internals of Poly105 state by block of message. As a note,
 // it accepts mutable message data for performance reasons by avoiding message
