@@ -22,7 +22,7 @@ fn poly1305_blocks(mut po Poly1305, msg []u8) {
         if msglen >= poly1305.block_size {
             // take msg block 
             block := msg[idx .. idx+block_size]
-            /* h += m */
+            // h += m
             m := unsigned.Uint128{
 				lo: binary.little_endian_u64(block[0..8])
 				hi: binary.little_endian_u64(block[8..16])
