@@ -172,41 +172,6 @@ pub fn (mut po Poly1305) reinit(key []u8) {
 	po.done = false
 }
 
-fn poly1305_update(mut po Poly1305, mut msg []u8) {
-	if po.leftover > 0 {
-		want := math.min(poly1305.block_size - po.leftover, msg.len)
-		dump(want)
-		dump(msg.len)
-		//mm := msg[..want].clone()
-		_ := copy(mut po.buffer[po.leftover..], msg[..want])
-		// for i, v in mm {
-		//		po.buffer[po.leftover + i] = v
-		//}
-
-		msg = unsafe { msg[want..] }
-		po.leftover += want
-
-		if po.leftover < poly1305.block_size {
-			return
-		}
-		update_generic(mut po, mut po.buffer)
-		// po.process_the_block(false)
-		po.leftover = 0
-	}
-
-	for msg.len >= poly1305.block_size {
-		// subtle.constant_time_copy(1, mut po.buffer, msg[..poly1305.block_size])
-		_ := copy(mut po.buffer, msg[..poly1305.block_size])
-		// po.process_the_block(false)
-		update_generic(mut po, mut po.buffer)
-		msg = unsafe { msg[poly1305.block_size..] }
-	}
-	if msg.len > 0 {
-		subtle.constant_time_copy(1, mut po.buffer[..msg.len], msg)
-		// po.leftover = msg.len
-		// po.leftover += copy(mut po.buffer[po.leftover..], msg)
-	}
-}
 
 // update_block updates the internals of Poly105 state by block of message. As a note,
 // it accepts mutable message data for performance reasons by avoiding message
