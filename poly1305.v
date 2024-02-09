@@ -117,12 +117,9 @@ pub fn new(key []u8) !&Poly1305 {
 	return ctx
 }
 
-// update updates internal of Poly1305 state by message. Internally, it clones the message
-// and supplies it to the update_block method. See the `update_block` method for details.
+// update updates internal of Poly1305 state by message.
 pub fn (mut po Poly1305) update(msg []u8) {
-	mut m := msg.clone() // unsafe { msg[..] }
-	// po.update_block(mut m)
-	poly1305_update(mut po, m)
+	poly1305_update_block(mut po, msg)
 }
 
 pub fn (po Poly1305) verify(tag []u8) bool {
@@ -131,7 +128,7 @@ pub fn (po Poly1305) verify(tag []u8) bool {
 	mut ctx := po
 	mut out := []u8{len: poly1305.tag_size}
 	if ctx.leftover > 0 {
-		update_generic(mut ctx, mut ctx.buffer[..ctx.leftover])
+		poly1305_blocks(mut ctx, ctx.buffer[..ctx.leftover])
 	}
 	finalize(mut out, mut ctx.h, ctx.s)
 	return subtle.constant_time_compare(tag[..], out) == 1
@@ -139,13 +136,13 @@ pub fn (po Poly1305) verify(tag []u8) bool {
 
 // finish finalizes the message authentication code calculation and stores the result into out.
 // After calls this method, don't use the instance anymore to do most anything, but,
-// you should reinitialize the instance with the new key with reinit method instead.
+// you should reinitialize the instance with the new key with .`reinit` method instead.
 pub fn (mut po Poly1305) finish(mut out []u8) {
 	if po.done {
 		panic('poly1305: has done, please reinit with the new key')
 	}
 	if po.leftover > 0 {
-		update_generic(mut po, mut po.buffer[..po.leftover])
+		poly1305_blocks(mut po, po.buffer[..po.leftover])
 	}
 	finalize(mut out, mut po.h, po.s)
 	// we reset instance to make its in bad unusable state.
@@ -172,37 +169,44 @@ pub fn (mut po Poly1305) reinit(key []u8) {
 	po.done = false
 }
 
-// update_block updates the internals of Poly105 state by block of message. As a note,
-// it accepts mutable message data for performance reasons by avoiding message
-// clones and working on message slices directly.
-// For simplicity, we dont export this method as a public, use `.update` instead
-fn (mut po Poly1305) update_block(mut msg []u8) {
+// poly1305_update_block updates the internals of Poly105 state instance by block of message.
+fn poly1305_update_block(mut po Poly1305, msg []u8) {
 	if msg.len == 0 {
 		return
 	}
 	if po.done {
 		panic('poly1305: has done, please reinit with the new key')
 	}
+
+	mut msglen := msg.len
+	mut idx := 0
 	// handle leftover
 	if po.leftover > 0 {
-		n := copy(mut po.buffer[po.leftover..], msg)
-		if po.leftover + n < poly1305.block_size {
-			po.leftover += n
+		want := math.min(poly1305.block_size - po.leftover, msglen)
+		block := msg[idx..idx + want]
+		_ := copy(mut po.buffer[po.leftover..], block)
+
+		msglen -= want
+		idx += want
+		po.leftover += want
+
+		if po.leftover < poly1305.block_size {
 			return
 		}
-		msg = unsafe { msg[n..] }
+		poly1305_blocks(mut po, po.buffer)
 		po.leftover = 0
-		update_generic(mut po, mut po.buffer)
 	}
-
-	nn := msg.len - msg.len % poly1305.tag_size
-	if nn > 0 {
-		update_generic(mut po, mut msg[..nn])
-		msg = unsafe { msg[nn..] }
+	// process full blocks
+	if msglen >= poly1305.block_size {
+		want := (msglen & ~(poly1305.block_size - 1))
+		mut block := msg[idx..idx + want]
+		poly1305_blocks(mut po, block)
+		idx += want
+		msglen -= want
 	}
-
-	if msg.len > 0 {
-		po.leftover += copy(mut po.buffer[po.leftover..], msg)
+	// store leftover
+	if msglen > 0 {
+		po.leftover += copy(mut po.buffer[po.leftover..], msg[idx..])
 	}
 }
 
@@ -221,8 +225,11 @@ fn (mut po Poly1305) reset() {
 	po.done = true
 }
 
-// update_generic updates internal state of Poly1305 mac instance with blocks of msg.
-fn update_generic(mut po Poly1305, mut msg []u8) {
+fn poly1305_blocks(mut po Poly1305, msg []u8) {
+	// nothing to do, just return
+	if msg.len == 0 {
+		return
+	}
 	// For correctness and clarity, we check whether r is properly clamped.
 	if po.r.lo & poly1305.not_rmask0 != 0 && po.r.hi & poly1305.not_rmask1 != 0 {
 		panic('poly1305: bad unclamped of r')
@@ -233,6 +240,7 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 	if po.h.hi & poly1305.mask_high60bits != 0 {
 		panic('poly1305: h need to be reduced')
 	}
+
 	// localize the thing
 	mut h := po.h
 	mut t := [4]u64{}
@@ -241,58 +249,59 @@ fn update_generic(mut po Poly1305, mut msg []u8) {
 	// - chop messages into 16-byte blocks and read block as little-endian number;
 	// - add one bit beyond the number (its dependz on the size of the block);
 	// - add this number to the accumulator and then multiply the accumulator by "r".
-	// - perform partial reduction modulo p on the result by calling squeeze function.
+	// - perform partial reduction modulo p on the result by calling poly1305_squeeze function.
 	// - updates poly1305 accumulator with the new values
-	for msg.len > 0 {
+	mut msglen := msg.len
+	mut idx := 0
+
+	for msglen > 0 {
 		// carry
 		mut c := u64(0)
-		if msg.len >= poly1305.block_size {
+		if msglen >= poly1305.block_size {
 			// Read the 16 bytes msg block as a little-endian number
 			// and stored into the 128 bits of Uint128
+			block := msg[idx..idx + poly1305.block_size]
 			m := unsigned.Uint128{
-				lo: binary.little_endian_u64(msg[0..8])
-				hi: binary.little_endian_u64(msg[8..16])
+				lo: binary.little_endian_u64(block[0..8])
+				hi: binary.little_endian_u64(block[8..16])
 			}
 			// add msg block to accumulator, h += m
 			h, c = h.add_128_checked(m, 0)
-			// The rfc requires us to set a bit just above the message size, ie,
+
+			// // The rfc requires us to set a bit just above the message size, ie,
 			// add one bit beyond the number of octets. For a 16-byte block,
 			// this is equivalent to adding 2^128 to the number.
 			// so we can just add 1 to the high part of accumulator (h.hi += 1)
-			h.hi, c = bits.add_64(h.hi, 1, c)
-			if c != 0 {
-				panic('poly1305: something bad')
-			}
-
-			// updates msg slice
-			msg = unsafe { msg[poly1305.block_size..] }
+			// h.hi has been checked above, so, its safe to assume its not overflow
+			h.hi += c + 1 // c = bits.add_64(h.hi, 1, c)
+			idx += poly1305.block_size
+			msglen -= poly1305.block_size
 		} else {
 			// The last one msg block might be shorter than 16 bytes long,
 			// pad it with zeros to align with block_size.
 			mut buf := []u8{len: poly1305.block_size}
-			subtle.constant_time_copy(1, mut buf[..msg.len], msg)
-			// set a bit above msg size.
-			buf[msg.len] = u8(0x01)
+			subtle.constant_time_copy(1, mut buf[..msglen], msg[idx..idx + msglen])
 
+			// set a bit above msg size.
+			buf[msglen] = u8(0x01)
 			// loads 16 bytes of message block
 			m := unsigned.Uint128{
 				lo: binary.little_endian_u64(buf[0..8])
 				hi: binary.little_endian_u64(buf[8..16])
 			}
+
 			// add this number to the accumulator, ie, h += m
 			h, c = h.add_128_checked(m, 0)
-			h.hi, c = bits.add_64(h.hi, 0, c)
-			if c != 0 {
-				panic('poly1305: something bad')
-			}
-
-			// drains the msg, we have reached the last block
-			msg = []u8{}
+			h.hi += c
+			idx += poly1305.block_size
+			msglen -= poly1305.block_size
 		}
-		// perform h *= r and then reduce output by modulo p
+
+		// perform h *= r and then do partial reduction modulo p to the output.
 		mul_h_by_r(mut t, mut h, po.r)
-		squeeze(mut h, t)
+		poly1305_squeeze(mut h, t)
 	}
+
 	// updates internal accumulator
 	po.h = h
 }
@@ -339,9 +348,9 @@ fn mul_h_by_r(mut t [4]u64, mut h Uint192, r unsigned.Uint128) {
 	t[3] = hb.lo
 }
 
-// squeeze reduces by doing partial reduction module p
+// poly1305_squeeze reduces by doing partial reduction module p
 // where t is result of previous h*r from mul_h_by_r calls.
-fn squeeze(mut h Uint192, t [4]u64) {
+fn poly1305_squeeze(mut h Uint192, t [4]u64) {
 	// we need to reduce 4 of 64 bit limbs in t modulo 2¹³⁰ - 5.
 	// we follow the go version, by splitting result at the 2¹³⁰ mark into h and cc, the carry.
 	mut ac := Uint192{

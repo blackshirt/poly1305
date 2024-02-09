@@ -4,7 +4,6 @@ import rand
 import encoding.hex
 import encoding.binary
 
-
 // see https://github.com/floodyberry/poly1305-donna/blob/master/poly1305-donna.c
 fn test_incremental_update_ported_from_poly1305donna() ! {
 	nacl_key := [u8(0xee), 0xa6, 0xa7, 0x25, 0x1c, 0x1e, 0x72, 0x91, 0x6d, 0x11, 0xc2, 0xcb, 0x21,
@@ -66,32 +65,13 @@ fn test_incremental_update_ported_from_poly1305donna() ! {
 	mut po := new(nacl_key)!
 	mut tag := []u8{len: tag_size}
 	dump(nacl_msg.len)
-	// po.update(nacl_msg)
-	m0 := nacl_msg[0..32].clone()
-	m1 := nacl_msg[32..96].clone()
-	m2 := nacl_msg[96..112].clone()
-	m3 := nacl_msg[112..120].clone()
-	m4 := nacl_msg[120..124].clone()
-	m5 := nacl_msg[124..126].clone()
-	m6 := nacl_msg[126..127].clone()
-	m7 := nacl_msg[127..128].clone()
-	m8 := nacl_msg[128..129].clone()
-	m9 := nacl_msg[129..130].clone()
-	m10 := nacl_msg[130..131].clone()
+	po.update(nacl_msg)
+	po.finish(mut tag)
+	assert tag == nacl_mac
 
-	po.update(m0)
-	po.update(m1)
-	po.update(m2)
-	po.update(m3)
-	po.update(m4)
-	po.update(m5)
-	po.update(m6)
-	po.update(m7)
-	po.update(m8)
-	po.update(m9)
-	po.update(m10)
-
-	/*
+	// lets reset and reinit poly1305 instance and performs test for incremental update
+	po.reinit(nacl_key)
+	po.update(nacl_msg[0..32])
 	po.update(nacl_msg[32..96])
 	po.update(nacl_msg[96..112])
 	po.update(nacl_msg[112..120])
@@ -102,11 +82,9 @@ fn test_incremental_update_ported_from_poly1305donna() ! {
 	po.update(nacl_msg[128..129])
 	po.update(nacl_msg[129..130])
 	po.update(nacl_msg[130..131])
-	*/
 	po.finish(mut tag)
 	assert tag == nacl_mac
 }
-
 
 fn test_poly1305_with_smoked_messages_are_working_normally() ! {
 	key := rand.bytes(32)!
@@ -159,8 +137,12 @@ fn test_poly1305_function_based_core_functionality() ! {
 		mut tag := []u8{len: tag_size}
 
 		mut po := new(key)!
-		update_generic(mut po, mut msg)
-		finalize(mut tag, mut po.h, po.s)
+
+		poly1305_update_block(mut po, msg)
+		// you can finalize directly, maybe there are some leftover bytes unprocessed
+		// call .finish instead
+		// finalize(mut tag, mut po.h, po.s)
+		po.finish(mut tag)
 		assert tag == expected_tag
 	}
 }
