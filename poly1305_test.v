@@ -64,12 +64,13 @@ fn test_incremental_update_ported_from_poly1305donna() ! {
 	//	result &= poly1305_verify(nacl_mac, mac);
 	mut po := new(nacl_key)!
 	mut tag := []u8{len: tag_size}
-	dump(nacl_msg.len)
+
 	po.update(nacl_msg)
 	po.finish(mut tag)
 	assert tag == nacl_mac
 
 	// lets reset and reinit poly1305 instance and performs test for incremental update
+	// Note: as security notes, you should use same key twice for authenticated same messages
 	po.reinit(nacl_key)
 	po.update(nacl_msg[0..32])
 	po.update(nacl_msg[32..96])
@@ -84,6 +85,34 @@ fn test_incremental_update_ported_from_poly1305donna() ! {
 	po.update(nacl_msg[130..131])
 	po.finish(mut tag)
 	assert tag == nacl_mac
+
+	// poly1305_auth(mac, wrap_msg, sizeof(wrap_msg), wrap_key);
+	// result &= poly1305_verify(wrap_mac, mac);
+	mut pi := new(wrap_key)!
+	pi.update(wrap_msg)
+	pi.finish(mut tag)
+	assert tag == wrap_mac
+
+	// poly1305_init(&total_ctx, total_key);
+	dump(total_key.len)
+	mut tkey := []u8{len: key_size}
+	_ := copy(mut tkey, total_key)
+	mut ptot := new(tkey)!
+	mut all_key := []u8{len: 32}
+	mut all_msg := []u8{len: 256}
+	for i := 0; i < 256; i++ {
+		// set key and message to 'i,i,i..'
+		for x := 0; x < sizeof(all_key); x++ {
+			all_key[x] = u8(i)
+		}
+		for y := 0; y < i; y++ {
+			all_msg[y] = u8(i)
+		}
+		create_tag(mut tag, all_msg[..i], all_key)!
+		ptot.update(tag)
+	}
+	ptot.finish(mut tag)
+	assert total_mac == tag
 }
 
 fn test_poly1305_with_smoked_messages_are_working_normally() ! {
